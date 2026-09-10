@@ -162,18 +162,12 @@ lets the proxy agent refresh automatically without you regenerating anything by 
 worth filling in even though the GUI marks it optional. These same steps are also
 shown inline in the GUI itself (Connect step → "How do I get these values?").
 
-## Mobility Master / Mobility Controller hierarchy
+## Mobility Conductor / Mobility Device hierarchy
 
-AOS8 doesn't have one flat "controller" — it's a Mobility Master (MM) managing a
-hierarchy of Mobility Controllers (MDs, aka managed devices), and **the MM never
-terminates APs itself**. Every AP is actually homed on a specific MD, and AP-local
-actions like `ap convert` have to land on that AP's own anchor MD, not the MM. This
-tool connects to your MM (or a standalone controller, which speaks the same API) and
-handles the MD-targeting for you — see the workflow table above for the "Load
-topology" / "Refresh AP list" steps that make this automatic. If topology hasn't been
-loaded yet, AP rows fall back to `config_path: "/md"`, which only works correctly for
-a standalone controller (not a real MM with multiple MDs) — always load topology
-first in a real MM deployment.
+AOS 8 is not built around a single, all-powerful controller. Instead, it uses a hierarchical architecture where a **Mobility Conductor** (formerly known as a **Mobility Master**) manages one or more **Mobility Devices (MDs)**. Aruba updated the terminology as part of its modernization effort, but if you still say "Mobility Master," nobody on the networking team is going to look at you funny. Most of us know exactly what you mean.
+The distinction matters because the Mobility Conductor is responsible for orchestration, configuration management, and providing a centralized view of the deployment. It is **not** where APs actually terminate. Every AP is anchored to a specific Mobility Device, and operational commands targeting an AP must be executed against the MD that owns that AP.
+This can be confusing when you're looking at the environment from the top of the hierarchy. The AP is visible from the Conductor, the configuration is visible from the Conductor, and the AP may even *appear* to belong to the Conductor. But when it comes time to perform AP-local operations, Aruba expects those commands to be sent to the correct Mobility Device. If topology hasn't been loaded yet, AP rows fall back to `config_path: "/md"`, which only works correctly for a standalone controller (not a real MM with multiple MDs) — always load topology first in a real MM deployment.
+
 
 ## Pre-flight checks
 
