@@ -276,11 +276,6 @@ helpers try several likely variants). Before relying on this against a real cont
 3. Correct `proxy-agent/endpoints.yaml` to match, and adjust the field-name lists in
    `app.py` if the "Controller (MD)" column or AP serials don't populate correctly.
 
-[aruba/central-automation-studio](https://github.com/aruba/central-automation-studio),
-Aruba's own official API-automation GUI for Central, is the source for the Central-side
-endpoints (`POST /central/v2/sites/associate`, `/device_inventory/v1/devices`) —
-confirmed against that tool's own source, not guessed.
-
 **SSH rollback** (`proxy-agent/ssh_client.py`) uses a non-interactive `exec_command`,
 which works for many Aruba CLI single-shot commands over SSH but not necessarily all —
 some Aruba CLIs expect an interactive PTY instead, and a command that triggers an
