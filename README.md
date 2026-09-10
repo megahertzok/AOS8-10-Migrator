@@ -35,12 +35,14 @@ pre-flight validation, batch conversion, post-migration verification, scoped rol
    pulls the whole repo as a zip via GitHub's own archive endpoint, no separate build
    step to maintain. Unzip it and open the `proxy-agent` folder. (Or `git clone` the
    repo if you'd rather.)
-2. **macOS**: double-click `start_proxy_agent.command`.
-   **Windows**: double-click `start_proxy_agent.bat`.
+2. **macOS**: double-click `start_proxy_agent.command`.  
+**Windows**: double-click `start_proxy_agent.bat`.
+  
    **Linux**: coming-soon
    
    **macOS Note:** When you run start_proxy_agent.command from finder, it will bug you about it not being trusted and wanting to send it to the recycle bin. You'll have to go into system preferences, Privacy & Security then run it from the Security tab. This is only because I'm too poor for a code signing certificate.
-   Nothing to type — it creates a virtualenv, upgrades pip (needed for `pystray`'s
+
+3. Nothing to type — it creates a virtualenv, upgrades pip (needed for `pystray`'s
    macOS dependencies to install from prebuilt wheels instead of failing to compile —
    see "Known gaps" if this still fails for you), installs dependencies, and starts
    itself on `http://127.0.0.1:8765`.
