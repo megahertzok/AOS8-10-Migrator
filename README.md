@@ -11,7 +11,7 @@ pre-flight validation, batch conversion, post-migration verification, scoped rol
 > logo or Element mark. It follows the color, type, and voice guidance published at
 > [design-system.hpe.design](https://design-system.hpe.design) as a courtesy to a
 > consistent, familiar experience for HPE Aruba Networking engineers — that's a style
-> choice, not a claim of affiliation.
+> choice, not a claim of affiliation. I'm just a guy trying to solve a problem and wanted to share it with the world.
 
 ## How this is put together
 
