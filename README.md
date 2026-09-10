@@ -16,7 +16,7 @@ pre-flight validation, batch conversion, post-migration verification, scoped rol
 ## How this is put together
 
 - **The site (`docs/`) is the entire GUI.** It's hosted on GitHub Pages at
-  `https://megahertzok.github.io/AOS8-10-Migrator/`. If you're just using the tool,
+  [https://megahertzok.github.io/AOS8-10-Migrator/](https://megahertzok.github.io/AOS8-10-Migrator/). If you're just using the tool,
   you never install or run anything — open that URL.
 - **The proxy agent (`proxy-agent/`) is the only thing anyone runs locally**, and only
   because a browser page can't reach an AOS8 controller directly (self-signed cert,
