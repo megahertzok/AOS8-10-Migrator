@@ -133,12 +133,26 @@
 
   // -------------------------------------------------------------- session persistence
   // Session IDs (not credentials) are cached per-browser so a page refresh doesn't
-  // orphan an active proxy-agent session. Cleared on explicit Disconnect.
+  // orphan an active proxy-agent session. Cleared on explicit Disconnect or
+  // "Clear saved data".
+
+  const SESSION_KEY = "aos8-10-migrator-session";
+  const FIELDS_KEY = "aos8-10-migrator-fields";
+
+  // Convenience only -- so you don't retype hostnames/URLs every visit. Deliberately
+  // excludes every password/secret/token field; those are never written to storage.
+  const PERSISTED_FIELD_IDS = [
+    "aos8Host", "aos8User", "aos8VerifyTls",
+    "centralBaseUrl", "centralClientId",
+    "apSshUser",
+    "fwServerType", "fwHost", "fwPort", "fwPath", "fwUsername",
+    "trackingAutoRefresh",
+  ];
 
   function saveSession() {
     try {
       localStorage.setItem(
-        "aos8-10-migrator-session",
+        SESSION_KEY,
         JSON.stringify({ proxyUrl: state.proxyUrl, aos8SessionId: state.aos8SessionId, centralSessionId: state.centralSessionId })
       );
     } catch (err) { /* private browsing / storage unavailable -- fine, just skip persistence */ }
@@ -146,7 +160,7 @@
 
   function restoreSession() {
     try {
-      const raw = localStorage.getItem("aos8-10-migrator-session");
+      const raw = localStorage.getItem(SESSION_KEY);
       if (!raw) return;
       const saved = JSON.parse(raw);
       if (saved.proxyUrl) {
@@ -165,6 +179,49 @@
       }
     } catch (err) { /* ignore malformed/blocked storage */ }
   }
+
+  function saveFields() {
+    try {
+      const values = {};
+      PERSISTED_FIELD_IDS.forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        values[id] = el.type === "checkbox" ? el.checked : el.value;
+      });
+      localStorage.setItem(FIELDS_KEY, JSON.stringify(values));
+    } catch (err) { /* private browsing / storage unavailable -- fine, just skip persistence */ }
+  }
+
+  function restoreFields() {
+    try {
+      const raw = localStorage.getItem(FIELDS_KEY);
+      if (!raw) return;
+      const values = JSON.parse(raw);
+      PERSISTED_FIELD_IDS.forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el || values[id] === undefined) return;
+        if (el.type === "checkbox") el.checked = values[id];
+        else el.value = values[id];
+      });
+    } catch (err) { /* ignore malformed/blocked storage */ }
+  }
+
+  function wirePersistedFields() {
+    PERSISTED_FIELD_IDS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener(el.tagName === "SELECT" || el.type === "checkbox" ? "change" : "input", saveFields);
+    });
+  }
+
+  document.getElementById("btnClearSavedData").addEventListener("click", () => {
+    if (!confirm("Clear saved connection info (hostnames, URLs, remembered session) from this browser? This does not delete any migration history -- that lives in the proxy agent's tracking store, not here.")) return;
+    try {
+      localStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(FIELDS_KEY);
+    } catch (err) { /* ignore */ }
+    location.reload();
+  });
 
   // -------------------------------------------------------------- connect
 
@@ -794,16 +851,21 @@
 
   let trackingAutoTimer = null;
 
-  document.getElementById("trackingAutoRefresh").addEventListener("change", (e) => {
+  function armTrackingAutoRefresh() {
     if (trackingAutoTimer) { clearInterval(trackingAutoTimer); trackingAutoTimer = null; }
-    const seconds = Number(e.target.value);
+    const seconds = Number(document.getElementById("trackingAutoRefresh").value);
     if (seconds > 0) {
       trackingAutoTimer = setInterval(() => document.getElementById("btnLoadTracking").click(), seconds * 1000);
     }
-  });
+  }
+
+  document.getElementById("trackingAutoRefresh").addEventListener("change", armTrackingAutoRefresh);
 
   // -------------------------------------------------------------- init
 
   restoreSession();
+  restoreFields();
+  wirePersistedFields();
+  armTrackingAutoRefresh(); // in case a saved auto-refresh interval was just restored
   pollDebugLog();
 })();

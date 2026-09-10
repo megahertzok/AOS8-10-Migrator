@@ -102,6 +102,20 @@ database — it's local runtime state, never committed.
   connect without a known_hosts prompt) — reasonable given the proxy agent already
   operates inside your trusted management network, but worth knowing.
 
+### What the browser remembers
+
+So you're not retyping hostnames/URLs every visit, the GUI saves a few fields to
+`localStorage` (this browser only, never sent anywhere but the proxy agent you
+configure): controller host, AOS8/AP SSH *usernames* (not passwords), Central base
+URL and Client ID (not secrets/tokens), firmware source host/path, and the
+tracking auto-refresh interval — plus the active session IDs so a page refresh
+doesn't orphan a live connection. **Every password, secret, and token field is
+deliberately excluded** — those live only in the form while you're using it and in
+the proxy agent's memory for that request. **Clear saved data** (top right of the
+GUI) wipes all of it and reloads the page. This is separate from — and doesn't
+touch — actual migration history, which lives in the proxy agent's tracking
+database (`proxy-agent/migration_state.db`), not the browser.
+
 ## The migration workflow, step by step
 
 The GUI's left sidebar is a numbered, vertical checklist — follow it top to bottom.
