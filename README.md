@@ -37,22 +37,23 @@ pre-flight validation, batch conversion, post-migration verification, scoped rol
    repo if you'd rather.)
 2. **macOS**: double-click `start_proxy_agent.command`.
    **Windows**: double-click `start_proxy_agent.bat`.
+   **Linux**: coming-soon
    Nothing to type — it creates a virtualenv, upgrades pip (needed for `pystray`'s
    macOS dependencies to install from prebuilt wheels instead of failing to compile —
    see "Known gaps" if this still fails for you), installs dependencies, and starts
    itself on `http://127.0.0.1:8765`.
-3. **Look for its icon in your menu bar (Mac) or system tray (Windows).** That's the
+4. **Look for its icon in your menu bar (Mac) or system tray (Windows).** That's the
    confirmation it's running — this isn't a silent background process. Click the icon
    for a menu: **Open GUI** (opens the tool in your browser — the proxy agent serves
    the GUI itself at `http://127.0.0.1:8765/`, so this works even without GitHub Pages),
    **Debug mode**, and **Quit**. On a headless machine with no display (e.g. a
    server-room jump box), it automatically falls back to console-only mode — set
    `proxy_agent.tray_icon: false` in `config.yaml` to skip the tray attempt entirely.
-4. Open the GUI (the tray's "Open GUI," `docs/index.html` locally, or the live Pages
+5. Open the GUI (the tray's "Open GUI," `docs/index.html` locally, or the live Pages
    URL) and, on the Connect step, confirm the Proxy Agent URL matches, then connect to
    your AOS8 Mobility Master and to Central. If you plan to use rollback, also fill in
    AP SSH credentials (or leave them blank to reuse your AOS8 login).
-5. Everything else happens in the browser.
+6. Everything else happens in the browser.
 
 To let a team share one proxy agent instance, edit `proxy-agent/config.yaml`
 (copied from `config.example.yaml` on first run) and set `proxy_agent.host: 0.0.0.0`,
