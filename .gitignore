@@ -1,0 +1,13 @@
+# Proxy agent local state -- never commit real credentials or migration history
+proxy-agent/config.yaml
+proxy-agent/*.db
+proxy-agent/venv/
+proxy-agent/__pycache__/
+proxy-agent/*.pyc
+proxy-agent/proxy_agent.log*
+
+# OS / editor cruft
+.DS_Store
+*.swp
+.vscode/
+.idea/

@@ -1,0 +1,7 @@
+Flask==3.0.3
+Flask-Cors==4.0.1
+requests==2.32.3
+PyYAML==6.0.2
+paramiko==3.5.0
+pystray==0.19.4
+Pillow==10.4.0

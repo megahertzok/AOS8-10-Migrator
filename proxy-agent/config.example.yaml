@@ -1,0 +1,24 @@
+# Copy this file to config.yaml and adjust as needed.
+# config.yaml is gitignored -- it never gets committed, and neither should real credentials.
+# Nothing in here is required to be filled in; the GUI's connect screen can supply
+# controller/Central credentials at runtime instead. Nothing entered in the GUI is
+# ever written to disk unless you explicitly add it here.
+
+proxy_agent:
+  host: 127.0.0.1       # 0.0.0.0 to let a whole team on the LAN reach this one instance
+  port: 8765
+  debug: false           # true logs every REST call/SSH command (never credentials) --
+                          # can also be toggled live from the GUI's Debug console
+  tray_icon: true         # false skips the system tray icon (e.g. on a headless jump box)
+  allowed_origins:
+    - https://megahertzok.github.io
+    - http://localhost:8765
+    - http://127.0.0.1:8765
+
+# Optional defaults so the GUI's connect screen starts pre-filled.
+aos8:
+  default_host: ""
+  verify_tls: false      # AOS8 controllers commonly present self-signed certs
+
+central:
+  default_base_url: ""   # e.g. https://apigw-uswest4.central.arubanetworks.com

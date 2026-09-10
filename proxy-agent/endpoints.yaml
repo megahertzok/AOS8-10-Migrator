@@ -1,0 +1,75 @@
+# Maps logical operations to actual REST paths / CLI show-commands.
+#
+# AOS8 uses a Mobility Master (MM) / Mobility Controller (MD) architecture: the MM is the
+# single point of configuration and monitoring, but it never terminates APs itself -- every
+# AP is homed on a specific MD ("anchor controller"), and AP-local actions like `ap convert`
+# have to land on that AP's actual anchor MD, not the MM. AOS8's REST API handles this via
+# the `config_path` query parameter, which addresses a node in the MM's configuration
+# hierarchy (e.g. "/mm" for master-wide scope, or a device node's own path such as
+# "/md/Boston/MD1" for a specific MD) -- the same login session works for both, you just
+# change config_path per call. See README.md "Mobility Master / Mobility Controller
+# hierarchy" for how this app discovers and uses that mapping.
+#
+# Entries marked VERIFIED are confirmed against Aruba's own developer-hub docs/examples.
+# Entries marked UNVERIFIED are the best-known-correct guesses based on the *documented
+# CLI verb set* (ap convert add/pre-validate/active/cancel) but the REST object/action
+# names themselves haven't been confirmed against a live controller -- use
+# GET /api/aos8/discover to check/correct them.
+
+aos8:
+  login: "/v1/api/login"                                       # VERIFIED
+  logout: "/v1/api/logout"                                     # VERIFIED
+  write_memory: "/v1/configuration/object/write_memory"        # VERIFIED
+  showcommand: "/v1/configuration/showcommand"                 # VERIFIED (generic "show ..." passthrough)
+
+  # Show-command strings run through `showcommand`, at MM ("/mm") scope so they return
+  # network-wide results across every managed MD. VERIFIED against Aruba's dev-hub examples.
+  show_switches_command: "show switches"
+  show_ap_database_command: "show ap database long"
+  ap_convert_status_command: "show ap convert-status"
+
+  # Best-effort local-flash storage listing, for the firmware pre-flight check.
+  # UNVERIFIED exact command name -- AOS8 doesn't document a canonical one; "show
+  # storage" is the common ArubaOS convention. Adjust if your firmware uses another.
+  show_storage_command: "show storage"
+
+  # AP conversion family. REST object *names* are still UNVERIFIED (confirm via
+  # /api/aos8/discover) but the CLI verbs and their exact argument shapes are now
+  # confirmed against HPE's own docs (Migrating controller managed APs to AOS 10):
+  #
+  #   ap convert add {ap-group <name> | ap-name <name>}
+  #   ap convert pre-validate {all-aps | specific-aps}
+  #   ap convert active {all-aps | specific-aps} server {ftp|tftp|http|https|scp} ... <image[;image2][.tar]>
+  #   ap convert active {all-aps | specific-aps} local-flash <image[;image2][.tar]>
+  #   ap convert cancel
+  #   ap convert delete {ap-group <name> | ap-name <name>}
+  #   ap convert clear-all
+  #
+  # Must be POSTed with config_path set to the AP's *anchor MD's* hierarchy node (the
+  # "Location" field from `show switches`), not "/mm" -- these are live, device-local
+  # actions, unlike the network-wide show-commands above.
+  ap_convert_add: "/v1/configuration/object/ap_convert_add"
+  ap_convert_prevalidate: "/v1/configuration/object/ap_convert_prevalidate"
+  ap_convert_active: "/v1/configuration/object/ap_convert_active"
+  ap_convert_cancel: "/v1/configuration/object/ap_convert_cancel"
+  ap_convert_delete: "/v1/configuration/object/ap_convert_delete"
+  ap_convert_clear_all: "/v1/configuration/object/ap_convert_clear_all"
+
+  # Candidate paths the discovery helper probes to find the controller's own live API
+  # index/spec -- confirmed by Aruba's docs to exist at "/api" after authenticating.
+  discovery_candidates:
+    - "/api"
+    - "/v1/api-docs"
+    - "/v3/api-docs"
+
+central:
+  # VERIFIED against Aruba's own aruba/central-automation-studio tool source
+  # (UI/assets/js/site-mgmt.js, UI/assets/js/migration.js).
+  sites_associate: "/central/v2/sites/associate"    # assign a device to a site (per-device call)
+  sites: "/central/v2/sites"
+  devices: "/device_inventory/v1/devices"
+  group_move: "/configuration/v1/devices/move"      # moves devices between GROUPS, not sites -- unused in Phase 1
+
+  # Rollback (convert-aos-ap cap) is issued by the proxy agent over direct SSH to the AP
+  # (see ssh_client.py) rather than through Central -- Central's Remote Console has no
+  # documented single-command REST/WebSocket API, only an interactive UI terminal.

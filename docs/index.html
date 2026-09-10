@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AOS8 &rarr; AOS10/Central AP Migrator</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <path d="M4 21 13 4l9 17" stroke="#01A982" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M8.5 14h9" stroke="#01A982" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-text">AOS8&nbsp;&rarr;&nbsp;AOS10 <span class="brand-sub">AP Migrator</span></span>
+    </div>
+    <div class="topbar-right">
+      <div class="conn-status" id="connStatus">
+        <span class="dot dot-off" id="aos8Dot"></span> AOS8
+        <span class="dot dot-off" id="centralDot"></span> Central
+      </div>
+      <button class="secondary small" id="btnToggleDebug">Debug console</button>
+    </div>
+  </header>
+
+  <div class="disclaimer">Unofficial community tool for HPE Aruba Networking migrations &mdash; not affiliated with, endorsed by, or supported by Hewlett Packard Enterprise.</div>
+
+  <div class="shell">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-group-label">Migration steps &mdash; follow in order</div>
+      <button class="step active" data-tab="connect"><span class="step-num">1</span><span class="step-label">Connect</span><span class="step-check" id="check-connect"></span></button>
+      <button class="step" data-tab="inventory"><span class="step-num">2</span><span class="step-label">AP inventory</span><span class="step-check" id="check-inventory"></span></button>
+      <button class="step" data-tab="preflight"><span class="step-num">3</span><span class="step-label">Pre-flight checks</span><span class="step-check" id="check-preflight"></span></button>
+      <button class="step" data-tab="execute"><span class="step-num">4</span><span class="step-label">Execute conversion</span><span class="step-check" id="check-execute"></span></button>
+      <button class="step" data-tab="verify"><span class="step-num">5</span><span class="step-label">Verify in Central</span><span class="step-check" id="check-verify"></span></button>
+      <button class="step" data-tab="sites"><span class="step-num">6</span><span class="step-label">Assign to site</span><span class="step-check" id="check-sites"></span></button>
+
+      <div class="sidebar-group-label utility-label">If something goes wrong</div>
+      <button class="step utility" data-tab="rollback"><span class="step-icon">&#8634;</span><span class="step-label">Rollback <span class="pill">optional</span></span></button>
+
+      <div class="sidebar-group-label utility-label">Always available</div>
+      <button class="step utility" data-tab="tracking"><span class="step-icon">&#9776;</span><span class="step-label">Tracking dashboard</span></button>
+    </nav>
+
+    <main id="mainContent">
+    <!-- ============================================================ STEP 1: CONNECT -->
+    <section class="panel active" id="panel-connect">
+      <div class="step-intro">
+        <h1>Step 1 of 6 &mdash; Connect</h1>
+        <p class="hint">Log into your AOS8 Mobility Master and (optionally, for later steps) Aruba Central. Everything below runs through your local proxy agent &mdash; if you haven't started it yet, do that first.</p>
+      </div>
+
+      <div class="card highlight">
+        <h2>Get the proxy agent running</h2>
+        <p class="hint">The proxy agent is what actually talks to your controller, Central, and APs &mdash; this web page can't reach them directly. It runs locally, on a machine with network access to your equipment.</p>
+        <ol class="steps-list">
+          <li>Download it: <a id="downloadProxyAgentZip" href="downloads/proxy-agent.zip" download>Download proxy agent (.zip)</a> <span class="field-hint">Just the proxy agent folder &mdash; not the whole project.</span></li>
+          <li>Unzip it &mdash; you'll get a <code>proxy-agent</code> folder.</li>
+          <li>Double-click <strong>start_proxy_agent.command</strong> (Mac) or <strong>start_proxy_agent.bat</strong> (Windows).</li>
+          <li>Look for its icon in your menu bar (Mac) or system tray (Windows) &mdash; that confirms it's running. Click the icon any time to reopen this GUI, or to turn on Debug mode.</li>
+        </ol>
+        <p class="hint">First run installs a few Python packages automatically &mdash; that can take a minute. Nothing to type.</p>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h2>Proxy agent connection</h2>
+          <label>Proxy agent URL <span class="required-mark">*</span>
+            <input type="text" id="proxyUrl" value="http://localhost:8765" placeholder="http://localhost:8765" required />
+            <span class="field-hint">Point this at a shared proxy agent's address if your team runs one centrally instead of individually.</span>
+          </label>
+          <button id="btnCheckProxy">Check connection</button>
+          <div class="status-line" id="proxyStatus"></div>
+        </div>
+
+        <div class="card">
+          <h2>AOS8 Mobility Master <span class="required-mark">*</span></h2>
+          <p class="hint">Log in the same way you would to the Mobility Master's WebUI or CLI. A standalone controller works too &mdash; it speaks the same API.</p>
+          <label>Controller host or IP <span class="required-mark">*</span>
+            <input type="text" id="aos8Host" placeholder="e.g. 10.1.1.5 or mm.example.com" required />
+          </label>
+          <label>Username <span class="required-mark">*</span>
+            <input type="text" id="aos8User" placeholder="admin" autocomplete="username" required />
+          </label>
+          <label>Password <span class="required-mark">*</span>
+            <input type="password" id="aos8Pass" placeholder="Your admin password" autocomplete="current-password" required />
+          </label>
+          <label class="checkbox-line"><input type="checkbox" id="aos8VerifyTls" /> Verify TLS certificate <span class="hint-inline">(optional)</span></label>
+          <span class="field-hint">Leave unchecked for the self-signed certificate most AOS8 controllers ship with.</span>
+          <div class="button-row">
+            <button id="btnAos8Connect">Connect to controller</button>
+            <button class="secondary" id="btnAos8Disconnect">Disconnect</button>
+          </div>
+          <div class="status-line" id="aos8Status"></div>
+        </div>
+
+        <div class="card">
+          <h2>Aruba Central <span class="required-mark">*</span> <span class="hint-inline">for licensing checks, verification &amp; site assignment</span></h2>
+          <details class="steps-details">
+            <summary>How do I get these values?</summary>
+            <ol class="steps-list">
+              <li>In Central, set the filter to <strong>Global</strong>, then go to <strong>Maintain &rarr; Organization &rarr; Platform Integration &rarr; Rest API</strong>.</li>
+              <li>Open the <strong>My Apps &amp; Tokens</strong> tab and click <strong>+ Add Apps &amp; Token</strong> to create an application &mdash; this gives you the <strong>Client ID</strong> and <strong>Client secret</strong>.</li>
+              <li>Select that application and click <strong>Generate</strong> to create a token, then <strong>Download Token</strong> to get the <strong>Access token</strong> and <strong>Refresh token</strong>.</li>
+              <li>The <strong>API Gateway base URL</strong> is shown on the same API Gateway page &mdash; it's region-specific (e.g. <code>apigw-uswest4.central.arubanetworks.com</code>).</li>
+            </ol>
+            <p class="field-hint">Access tokens expire after 2 hours; the refresh token is valid 14 days and lets the proxy agent refresh automatically &mdash; worth filling in even though it's optional.</p>
+          </details>
+          <label>API Gateway base URL <span class="required-mark">*</span>
+            <input type="text" id="centralBaseUrl" placeholder="https://apigw-uswest4.central.arubanetworks.com" required />
+          </label>
+          <label>Client ID <span class="required-mark">*</span>
+            <input type="text" id="centralClientId" placeholder="From Central's API Gateway page" required />
+          </label>
+          <label>Client secret <span class="required-mark">*</span>
+            <input type="password" id="centralClientSecret" placeholder="From Central's API Gateway page" required />
+          </label>
+          <label>Access token <span class="required-mark">*</span>
+            <input type="password" id="centralAccessToken" placeholder="Generated access token" required />
+          </label>
+          <label>Refresh token <span class="hint-inline">(optional, enables auto-refresh)</span>
+            <input type="password" id="centralRefreshToken" placeholder="Optional" />
+          </label>
+          <div class="button-row">
+            <button id="btnCentralConnect">Connect to Central</button>
+            <button class="secondary" id="btnCentralDisconnect">Disconnect</button>
+          </div>
+          <div class="status-line" id="centralStatus"></div>
+        </div>
+
+        <div class="card">
+          <h2>AP SSH credentials <span class="pill">optional</span></h2>
+          <p class="hint">Only needed if you plan to use <strong>Rollback</strong> &mdash; reverting an AP to Campus AP mode has to run on the AP's own console over SSH. Skip this entirely if you don't expect to need rollback; leave it blank later and it reuses the AOS8 credentials above.</p>
+          <label>AP admin username <span class="hint-inline">(optional)</span>
+            <input type="text" id="apSshUser" placeholder="Same as AOS8 username if blank" autocomplete="off" />
+          </label>
+          <label>AP admin password <span class="hint-inline">(optional)</span>
+            <input type="password" id="apSshPass" placeholder="Same as AOS8 password if blank" autocomplete="off" />
+          </label>
+        </div>
+      </div>
+
+      <p class="hint legend"><span class="required-mark">*</span> required to proceed to the next step. Everything else is optional.</p>
+    </section>
+
+    <!-- ============================================================ STEP 2: AP INVENTORY -->
+    <section class="panel" id="panel-inventory">
+      <div class="step-intro">
+        <h1>Step 2 of 6 &mdash; AP inventory</h1>
+        <p class="hint">Build the list of APs you're migrating. Pull it live from the controller, or import a CSV &mdash; e.g. to plan a migration before you're ready to connect to anything, or to work from a list someone else exported.</p>
+      </div>
+
+      <div class="card">
+        <h2>Topology <span class="hint-inline">(Mobility Master &rarr; Mobility Controllers)</span></h2>
+        <p class="hint">AOS8's Mobility Master never terminates APs itself &mdash; each AP is homed on a specific Mobility Controller (MD). Load this <strong>first</strong>, before refreshing the AP list, so AP-convert actions land on the right MD instead of the MM. Skip this only if you're connected to a standalone controller (no MM).</p>
+        <button id="btnLoadTopology">Load topology (show switches)</button>
+        <table class="data-table" id="topologyTable">
+          <thead><tr><th>Name</th><th>IP</th><th>Location (config_path)</th><th>Type</th><th>Status</th><th>Model</th><th>Version</th></tr></thead>
+          <tbody id="topologyTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>AP database</h2>
+        <div class="toolbar">
+          <button id="btnLoadAps">Refresh from controller</button>
+          <button class="secondary" id="btnImportCsvTrigger">Import CSV&hellip;</button>
+          <input type="file" id="csvImportInput" accept=".csv" hidden />
+          <button class="secondary" id="btnExportApsCsv">Export CSV</button>
+        </div>
+        <p class="hint">CSV columns: <code>mac</code> (required, the row key), plus any of <code>name, ap_group, state, notes, md_ip, md_name, md_config_path, serial, central_site_id, ap_ip</code> &mdash; all optional. Unknown extra columns are kept for your reference and simply ignored on import.</p>
+        <div class="status-line" id="csvImportStatus"></div>
+      </div>
+
+      <div class="toolbar" id="groupFilterBar"></div>
+      <table class="data-table" id="apTable">
+        <thead>
+          <tr>
+            <th><input type="checkbox" id="selectAllAps" /></th>
+            <th>Name</th>
+            <th>MAC</th>
+            <th>Serial</th>
+            <th>Group</th>
+            <th>Controller (MD)</th>
+            <th>State</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="apTableBody"></tbody>
+      </table>
+      <p class="hint">Select the APs you want to migrate above, then continue to <strong>Step 3 &mdash; Pre-flight checks</strong>. Your selection carries over between steps.</p>
+    </section>
+
+    <!-- ============================================================ STEP 3: PRE-FLIGHT -->
+    <section class="panel" id="panel-preflight">
+      <div class="step-intro">
+        <h1>Step 3 of 6 &mdash; Pre-flight checks</h1>
+        <p class="hint">Confirm the selected APs are actually ready to convert <em>before</em> you reboot them. Selected APs: <strong id="selectedCountPreflight">0</strong>.</p>
+      </div>
+
+      <div class="callout warning">
+        <span>&#9888;</span>
+        <div>
+          <strong>Configuration that won't carry over automatically.</strong> Per HPE's "Configuration retained or migrated" guide: the AP's native/management VLAN is <strong>never</strong> retained (it always assumes VLAN 1 on the uplink after conversion). AP1X, HTTP proxy, PPPoE, and mesh settings stay on the AP but are <strong>not</strong> migrated into Central &mdash; a mismatch here can make the AP flap and auto-restore. Configure these in the target Central AP group <em>before</em> converting if your APs use them.
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>3a. Add to conversion list &amp; pre-validate</h3>
+        <p class="hint"><code>pre-validate</code> is the official way to confirm an AP is licensed in Central and has a group assigned &mdash; the results appear in the log below. Do this before Execute, not after.</p>
+        <div class="button-row">
+          <button id="btnConvertAdd">1. Add to conversion list</button>
+          <button id="btnConvertPrevalidate">2. Pre-validate (checks licensing &amp; group)</button>
+          <button id="btnConvertStatus">Refresh status</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>3b. Firmware source</h3>
+        <p class="hint">Where the AOS10 image comes from during conversion. Local flash or a TFTP/FTP/SCP server you control are the most common choices for a tightly-managed network; HTTP(S) also works.</p>
+        <div class="grid-3">
+          <label>Delivery method <span class="required-mark">*</span>
+            <select id="fwServerType" required>
+              <option value="local-flash">local-flash (image already on controller)</option>
+              <option value="tftp" selected>tftp</option>
+              <option value="ftp">ftp</option>
+              <option value="scp">scp</option>
+              <option value="http">http</option>
+              <option value="https">https</option>
+            </select>
+          </label>
+          <label>Server host <span class="required-mark" id="fwHostRequired">*</span> <span class="hint-inline">(not used for local-flash)</span>
+            <input type="text" id="fwHost" placeholder="e.g. 10.1.1.10" />
+          </label>
+          <label>Port <span class="hint-inline">(optional)</span>
+            <input type="number" id="fwPort" placeholder="Protocol default" />
+          </label>
+          <label>Path <span class="hint-inline">(http/https only, optional)</span>
+            <input type="text" id="fwPath" placeholder="e.g. /firmware" />
+          </label>
+          <label>Image filename(s) <span class="required-mark">*</span>
+            <input type="text" id="fwFilename" placeholder="firmware1;firmware2 or image.tar" required />
+            <span class="field-hint">Semicolon-separate multiple AP-model images, or point to a single .tar containing them all.</span>
+          </label>
+          <label>SCP/FTP username <span class="hint-inline">(optional, if your server needs auth)</span>
+            <input type="text" id="fwUsername" placeholder="Optional" autocomplete="off" />
+          </label>
+          <label>SCP/FTP password <span class="hint-inline">(optional, if your server needs auth)</span>
+            <input type="password" id="fwPassword" placeholder="Optional" autocomplete="off" />
+          </label>
+        </div>
+        <button id="btnFirmwareCheck">Test firmware source</button>
+        <div class="status-line" id="firmwareCheckStatus"></div>
+      </div>
+
+      <pre class="log" id="preflightLog"></pre>
+      <p class="hint">When pre-validate reports success and your firmware source checks out, continue to <strong>Step 4 &mdash; Execute conversion</strong>.</p>
+    </section>
+
+    <!-- ============================================================ STEP 4: EXECUTE -->
+    <section class="panel" id="panel-execute">
+      <div class="step-intro">
+        <h1>Step 4 of 6 &mdash; Execute conversion</h1>
+        <p class="hint">This reboots the selected APs into AOS10. They'll reconnect through Activate and check in with Central under the group <code>pre-validate</code> reported in Step 3. A selection spanning multiple Mobility Controllers is automatically split into one action per MD, using each AP's own anchor controller.</p>
+      </div>
+      <div class="card">
+        <p class="hint">Selected APs: <strong id="selectedCountExecute">0</strong>. Double-check Step 3 passed before continuing &mdash; this step reboots real hardware.</p>
+        <button id="btnConvertExecute" class="danger">Execute conversion</button>
+        <button id="btnConvertCancel" class="secondary">Cancel in-flight (selected)</button>
+        <pre class="log" id="convertLog"></pre>
+      </div>
+      <p class="hint">Conversion takes a few minutes per AP. Once it reboots and checks into Central, continue to <strong>Step 5 &mdash; Verify in Central</strong>.</p>
+    </section>
+
+    <!-- ============================================================ STEP 5: VERIFY -->
+    <section class="panel" id="panel-verify">
+      <div class="step-intro">
+        <h1>Step 5 of 6 &mdash; Verify in Central</h1>
+        <p class="hint">Confirms each converted AP is online in Central, its name matches what was recorded before migration, and (once assigned) its site is correct. This is a checklist, not a gate &mdash; it won't block you from moving on.</p>
+      </div>
+      <div class="card">
+        <button id="btnVerifyCentral">Verify selected in Central</button>
+        <table class="data-table" id="verifyTable">
+          <thead><tr><th>MAC</th><th>Serial</th><th>Found</th><th>Online</th><th>Name match</th><th>Site match</th></tr></thead>
+          <tbody id="verifyTableBody"></tbody>
+        </table>
+        <p class="hint">Another way to cross-check: look at <code>show ap lldp neighbors</code> from the AP's switch port &mdash; a still-AOS8 AP shows as a CAP, a converted one shows as an IAP.</p>
+      </div>
+      <p class="hint">Once an AP is confirmed online, continue to <strong>Step 6 &mdash; Assign to site</strong>.</p>
+    </section>
+
+    <!-- ============================================================ STEP 6: SITES -->
+    <section class="panel" id="panel-sites">
+      <div class="step-intro">
+        <h1>Step 6 of 6 &mdash; Assign to site</h1>
+        <p class="hint">Newly-converted APs land in Central unassigned. This is the last step: place each one into its target Central site.</p>
+      </div>
+      <div class="card">
+        <p class="hint">Lists APs currently in <code>converted_unassigned</code>. Select a target site and assign the batch.</p>
+        <div class="button-row">
+          <button id="btnLoadUnassigned">Load unassigned converted APs</button>
+          <button id="btnLoadSites">Load Central sites</button>
+          <button class="secondary" id="btnExportUnassignedCsv">Export CSV</button>
+        </div>
+        <table class="data-table" id="unassignedTable">
+          <thead><tr><th><input type="checkbox" id="selectAllUnassigned" /></th><th>Serial</th><th>MAC</th><th>Name</th><th>Group</th></tr></thead>
+          <tbody id="unassignedTableBody"></tbody>
+        </table>
+        <div class="grid-2">
+          <label>Target site <span class="required-mark">*</span>
+            <select id="siteSelect" required></select>
+          </label>
+          <label>Device type <span class="required-mark">*</span>
+            <select id="deviceTypeSelect" required>
+              <option value="IAP" selected>IAP (Aruba AP)</option>
+              <option value="CONTROLLER">CONTROLLER</option>
+              <option value="SWITCH">SWITCH</option>
+              <option value="GATEWAY">GATEWAY</option>
+            </select>
+          </label>
+        </div>
+        <button id="btnAssignSite" class="danger">Assign selected to site</button>
+        <div class="status-line" id="assignStatus"></div>
+      </div>
+      <div class="callout ok">
+        <span>&#10003;</span>
+        <div>That's the full migration flow. <strong>Rollback</strong> and the <strong>Tracking dashboard</strong> in the sidebar are there if you need them &mdash; rollback only if something needs to be undone, tracking any time you want the full picture.</div>
+      </div>
+    </section>
+
+    <!-- ============================================================ ROLLBACK (optional utility) -->
+    <section class="panel" id="panel-rollback">
+      <div class="step-intro">
+        <h1>Rollback <span class="pill">optional &mdash; only if needed</span></h1>
+        <p class="hint">Use this only if a migrated AP (or a whole batch) needs to go back to AOS8/Campus AP mode. It is <strong>not</strong> part of the normal migration flow &mdash; skip it entirely if everything's going smoothly.</p>
+      </div>
+      <div class="card">
+        <p class="hint">HPE's docs are explicit that AOS10&rarr;AOS8 reversion "cannot be performed at the group level" &mdash; it's always a per-AP command. Choosing a group or site scope here just expands to the matching APs and runs the per-AP steps for each of them automatically: cancel if still in-flight, otherwise SSH to the AP and issue <code>convert-aos-ap cap &lt;controller&gt;</code>.</p>
+        <div class="grid-3">
+          <label>Scope <span class="required-mark">*</span>
+            <select id="rollbackScope" required>
+              <option value="ap">Single AP (from current selection)</option>
+              <option value="group">AP group</option>
+              <option value="site">Central site</option>
+            </select>
+          </label>
+          <label>Group name <span class="hint-inline">(if scope = AP group)</span>
+            <input type="text" id="rollbackGroupValue" placeholder="e.g. Building1" />
+          </label>
+          <label>Central site <span class="hint-inline">(if scope = Central site)</span>
+            <select id="rollbackSiteValue"></select>
+          </label>
+        </div>
+        <button id="btnLoadRollbackScope">Load matching APs</button>
+        <table class="data-table" id="rollbackScopeTable">
+          <thead><tr><th>MAC</th><th>Name</th><th>Original group</th><th>State</th><th>Anchor MD</th></tr></thead>
+          <tbody id="rollbackScopeTableBody"></tbody>
+        </table>
+        <p class="hint">Requires the AP SSH credentials from Step 1 (or falls back to your AOS8 login) for already-converted APs.</p>
+        <button id="btnRollbackExecute" class="danger">Roll back scope</button>
+        <pre class="log" id="rollbackLog"></pre>
+      </div>
+    </section>
+
+    <!-- ============================================================ TRACKING (utility dashboard) -->
+    <section class="panel" id="panel-tracking">
+      <div class="step-intro">
+        <h1>Tracking dashboard</h1>
+        <p class="hint">Every AP this tool has ever touched, with its current state &mdash; the source of truth once an AP leaves the AOS8 controller's own visibility. Available any time, not tied to a specific step.</p>
+      </div>
+      <div class="toolbar">
+        <button id="btnLoadTracking">Refresh now</button>
+        <select id="trackingStateFilter">
+          <option value="">All states</option>
+          <option value="discovered">discovered</option>
+          <option value="pre_validated">pre_validated</option>
+          <option value="converting">converting</option>
+          <option value="converted_unassigned">converted_unassigned</option>
+          <option value="assigned_to_site">assigned_to_site</option>
+          <option value="failed">failed</option>
+          <option value="rolled_back">rolled_back</option>
+        </select>
+        <label class="inline-label">Auto-refresh
+          <select id="trackingAutoRefresh">
+            <option value="0" selected>Off</option>
+            <option value="15">Every 15 seconds</option>
+            <option value="30">Every 30 seconds</option>
+            <option value="60">Every 1 minute</option>
+            <option value="120">Every 2 minutes</option>
+            <option value="300">Every 5 minutes</option>
+          </select>
+        </label>
+        <button class="secondary" id="btnExportTrackingCsv">Export CSV</button>
+      </div>
+      <table class="data-table" id="trackingTable">
+        <thead>
+          <tr>
+            <th>MAC</th><th>Serial</th><th>Name</th><th>Group</th><th>Original group</th><th>Controller (MD)</th><th>State</th><th>Last updated</th><th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="trackingTableBody"></tbody>
+      </table>
+    </section>
+    </main>
+  </div>
+
+  <div class="debug-drawer" id="debugDrawer" hidden>
+    <div class="debug-drawer-header">
+      <strong>Debug console</strong>
+      <span class="hint-inline">Every REST call and SSH command the proxy agent makes &mdash; credentials are always redacted.</span>
+      <label class="checkbox-line debug-toggle"><input type="checkbox" id="debugModeToggle" /> Debug mode on</label>
+      <button class="secondary small" id="btnCloseDebug">Close</button>
+    </div>
+    <pre class="log debug-log" id="debugLogBody"></pre>
+  </div>
+
+  <footer class="app-footer">
+    AOS8 &rarr; AOS10/Central AP Migrator &mdash; an unofficial, community-built tool. Not produced, reviewed, or supported by Hewlett Packard Enterprise or Aruba Networks. Always validate against a lab/test AP before running against production infrastructure.
+  </footer>
+
+  <script src="assets/icons.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
