@@ -38,7 +38,7 @@ pre-flight validation, batch conversion, post-migration verification, scoped rol
 2. **macOS**: double-click `start_proxy_agent.command`.  
 **Windows**: double-click `start_proxy_agent.bat`.
   
-   **Linux**: coming-soon
+   **Linux**: Coming soon!
    
    **macOS Note:** When you run start_proxy_agent.command from finder, it will bug you about it not being trusted and wanting to send it to the recycle bin. You'll have to go into system preferences, Privacy & Security then run it from the Security tab. This is only because I'm too poor for a code signing certificate.
 
