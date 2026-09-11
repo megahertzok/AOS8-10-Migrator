@@ -324,6 +324,31 @@
     }
   });
 
+  // Central's own docs list per-region API Gateway domains (see the dropdown's
+  // options) -- picking one auto-fills the actual URL field below, which stays the
+  // single source of truth everywhere else in the app (connect, reachability check,
+  // persistence) so nothing else needed to change to support this.
+  document.getElementById("centralBaseUrlRegion").addEventListener("change", (e) => {
+    if (e.target.value && e.target.value !== "custom") {
+      document.getElementById("centralBaseUrl").value = e.target.value;
+      saveFields();
+    }
+  });
+
+  /** Reflects a restored/typed URL back onto the region dropdown, so a page reload
+   * shows which region is active instead of always resetting to "Select a region…".
+   * A URL that doesn't match any listed region (including one typed by hand) selects
+   * "Custom / other" rather than silently clearing the field. */
+  function syncCentralRegionFromUrl() {
+    const url = document.getElementById("centralBaseUrl").value.trim();
+    const select = document.getElementById("centralBaseUrlRegion");
+    if (!url) { select.value = ""; return; }
+    const match = Array.from(select.options).some((o) => o.value === url);
+    select.value = match ? url : "custom";
+  }
+
+  document.getElementById("centralBaseUrl").addEventListener("input", syncCentralRegionFromUrl);
+
   document.getElementById("btnCentralConnect").addEventListener("click", async () => {
     const base_url = document.getElementById("centralBaseUrl").value.trim();
     const client_id = document.getElementById("centralClientId").value.trim();
@@ -1261,6 +1286,7 @@
 
   restoreSession();
   restoreFields();
+  syncCentralRegionFromUrl();
   wirePersistedFields();
   armTrackingAutoRefresh(); // in case a saved auto-refresh interval was just restored
   pollDebugLog();

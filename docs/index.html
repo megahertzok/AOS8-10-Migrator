@@ -119,8 +119,26 @@
             </ol>
             <p class="field-hint">Access tokens expire after 2 hours; the refresh token is valid 14 days and lets the proxy agent refresh automatically &mdash; worth filling in even though it's optional.</p>
           </details>
+          <label>Central region <span class="hint-inline">(auto-fills the URL below &mdash; pick "Custom" if yours isn't listed)</span>
+            <select id="centralBaseUrlRegion">
+              <option value="">Select a region&hellip;</option>
+              <option value="https://app1-apigw.central.arubanetworks.com">US-1</option>
+              <option value="https://apigw-prod2.central.arubanetworks.com">US-2</option>
+              <option value="https://apigw-uswest4.central.arubanetworks.com">US-WEST-4</option>
+              <option value="https://eu-apigw.central.arubanetworks.com">EU-1</option>
+              <option value="https://apigw-eucentral2.central.arubanetworks.com">EU-2</option>
+              <option value="https://apigw-eucentral3.central.arubanetworks.com">EU-3</option>
+              <option value="https://apigw-ca.central.arubanetworks.com">Canada-1</option>
+              <option value="https://apigw.central.arubanetworks.com.cn">China-1</option>
+              <option value="https://api-ap.central.arubanetworks.com">APAC-1</option>
+              <option value="https://apigw-apaceast.central.arubanetworks.com">APAC-EAST1</option>
+              <option value="https://apigw-apacsouth.central.arubanetworks.com">APAC-SOUTH1</option>
+              <option value="custom">Custom / other</option>
+            </select>
+          </label>
           <label>API Gateway base URL <span class="required-mark">*</span>
             <input type="text" id="centralBaseUrl" placeholder="https://apigw-uswest4.central.arubanetworks.com" required />
+            <span class="field-hint">Auto-filled by the region above &mdash; edit directly for a gateway not in the list.</span>
           </label>
           <label>Client ID <span class="required-mark">*</span>
             <input type="text" id="centralClientId" placeholder="From Central's API Gateway page" required />
