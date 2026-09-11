@@ -215,6 +215,11 @@
           <button id="btnConvertPrevalidate">2. Pre-validate (checks licensing &amp; group)</button>
           <button id="btnConvertStatus">Refresh status</button>
         </div>
+        <table class="data-table" id="prevalidateTable" hidden>
+          <thead><tr><th>AP</th><th>Result</th></tr></thead>
+          <tbody id="prevalidateTableBody"></tbody>
+        </table>
+        <p class="hint" id="prevalidateFallbackNote" hidden>Couldn't find a recognizable per-AP breakdown in the response (the exact shape is UNVERIFIED against a real controller) &mdash; see the raw response in the log below instead.</p>
       </div>
 
       <div class="card">

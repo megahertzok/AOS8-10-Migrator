@@ -450,8 +450,56 @@
 
   function logGroupResults(logId, label, groups) {
     (groups.groups || []).forEach((g) => {
-      appendLog(logId, `${label} @ ${g.config_path} (${g.ap_names.length} AP): ${g.error ? "ERROR " + g.error : JSON.stringify(g.result)}`);
+      appendLog(logId, `${label} @ ${g.config_path} (${g.ap_names.length} AP): ${g.error ? "ERROR " + g.error : JSON.stringify(g.result, null, 2)}`);
     });
+  }
+
+  /** ap_convert_prevalidate's exact REST response shape is UNVERIFIED (see README
+   * "Known gaps") -- rather than guess specific field names for "status"/"reason"
+   * (which could misrepresent the result if wrong), this finds whatever array of
+   * per-item results the response contains and renders one row per item with its
+   * full raw content, so pre-validate's per-AP detail is broken out visually
+   * without fabricating a field mapping we can't confirm. Falls back to a note
+   * pointing at the raw JSON log if no array is found anywhere in the response. */
+  function findResultRows(result) {
+    if (!result || typeof result !== "object") return null;
+    for (const key of ["Pre-Validate", "AP Status", "Results", "aps", "APs"]) {
+      if (Array.isArray(result[key])) return result[key];
+    }
+    for (const value of Object.values(result)) {
+      if (Array.isArray(value) && value.length && typeof value[0] === "object") return value;
+    }
+    return null;
+  }
+
+  function apLabelFor(item) {
+    for (const key of ["AP Name", "Name", "ap_name", "AP Wired MAC Address", "Wired MAC Address", "mac", "MAC Address"]) {
+      if (item && item[key]) return item[key];
+    }
+    return null;
+  }
+
+  function renderPrevalidateTable(data) {
+    const table = document.getElementById("prevalidateTable");
+    const tbody = document.getElementById("prevalidateTableBody");
+    const fallback = document.getElementById("prevalidateFallbackNote");
+    tbody.innerHTML = "";
+    let rowCount = 0;
+    (data.groups || []).forEach((g) => {
+      if (g.error) return;
+      const rows = findResultRows(g.result);
+      if (!rows) return;
+      rows.forEach((item, idx) => {
+        const tr = document.createElement("tr");
+        const label = apLabelFor(item) || `AP #${idx + 1} @ ${g.config_path}`;
+        const detail = typeof item === "object" ? JSON.stringify(item) : String(item);
+        tr.innerHTML = `<td>${label}</td><td>${detail}</td>`;
+        tbody.appendChild(tr);
+        rowCount++;
+      });
+    });
+    table.hidden = rowCount === 0;
+    fallback.hidden = rowCount > 0;
   }
 
   document.getElementById("btnConvertAdd").addEventListener("click", async () => {
@@ -472,6 +520,7 @@
       const groups = selectedGroups();
       const data = await api("POST", "/api/aos8/convert/prevalidate", { body: { session_id: state.aos8SessionId, groups } });
       logGroupResults("preflightLog", "Pre-validate", data);
+      renderPrevalidateTable(data);
     } catch (err) {
       appendLog("preflightLog", `ERROR: ${err.message}`);
     }

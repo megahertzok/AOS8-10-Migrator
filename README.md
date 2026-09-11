@@ -184,7 +184,13 @@ Before executing a conversion, the Convert & Rollback tab surfaces:
 - **Licensing and group assignment** — `ap convert pre-validate` itself checks that
   each AP is licensed on Central and reports which Central group it will land in.
   This *is* the licensing check; there's no separate Central API call for it. Run it
-  and read the result before Execute.
+  and read the result before Execute. The response is broken out per-AP in a table
+  where possible — `ap_convert_prevalidate`'s exact response shape is `UNVERIFIED`
+  (see "Known gaps"), so rather than guess specific "status"/"reason" field names
+  that could misrepresent a result if wrong, this finds whatever array of per-item
+  results the response contains and shows each item's full raw content; if no array
+  is found at all, it falls back to a note pointing at the raw JSON in the log below
+  (now pretty-printed, not a single-line blob).
 - **Firmware source reachability** — pick a delivery method (local-flash, or a
   tftp/ftp/http/https/scp server) and click "Test firmware source." This confirms the
   server/flash is *reachable*, not that the exact image file is present — AOS8 has no
