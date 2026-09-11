@@ -201,6 +201,17 @@ Before executing a conversion, the Convert & Rollback tab surfaces:
   mesh settings stay on the AP but are **not** migrated into Central, and a mismatch
   can make the AP flap and auto-restore. If your APs use any of these, configure the
   equivalent settings in the target Central AP group *before* converting.
+- **Country code is permanent** — `ap convert` writes the controller's configured
+  regulatory domain (country code) onto every AP it converts, and it **cannot be
+  changed afterward** without a factory reset; it also permanently ties FCC-locked
+  hardware to a US-only regulatory domain. The Pre-flight step shows a best-effort
+  detected country code (via a `show ap regulatory-domain-profile` lookup — UNVERIFIED
+  exact command, see `endpoints.yaml`) and requires you to check an acknowledgement box
+  before Execute unlocks. If you're converting APs destined for a Central site in a
+  *different* country than this controller, stop and re-home them from a controller in
+  the correct region first — there is no supported way to fix this after the fact.
+  ([source](https://airheads.hpe.com/discussion/ap-convert-command-in-86),
+  [source](https://blog.theitrebel.com/2020/04/28/two-simple-words/))
 
 ## Post-migration verification
 

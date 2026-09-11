@@ -207,6 +207,18 @@
         </div>
       </div>
 
+      <div class="callout critical">
+        <span>&#9888;</span>
+        <div>
+          <strong>Country code is permanent.</strong> <code>ap convert</code> writes this controller's configured regulatory domain (country code) onto every AP it converts &mdash; <strong>once written it cannot be changed</strong> without a factory reset, and it also permanently ties FCC-locked hardware to a US-only regulatory domain. If the APs you're converting are destined for a Central site in a <em>different</em> country than this controller, stop and re-home them from a controller in the correct region first.
+          <div class="status-line" id="countryCodeStatus">Detected controller country code: <strong id="countryCodeValue">unknown &mdash; connect to AOS8 above, or confirm manually before continuing</strong></div>
+          <label class="checkbox-row">
+            <input type="checkbox" id="ackCountryCode" />
+            I understand the country code written during this conversion is permanent and correct for these APs' destination.
+          </label>
+        </div>
+      </div>
+
       <div class="card">
         <h3>3a. Controller firmware version</h3>
         <p class="hint"><code>ap convert</code> was introduced in ArubaOS <strong>8.6.0.0</strong> &mdash; on older firmware the command doesn't exist and conversion fails confusingly. Checks the anchor controller(s) for your currently-selected APs (loads topology automatically if you haven't already).</p>
