@@ -196,6 +196,11 @@ Before executing a conversion, the Convert & Rollback tab surfaces:
   mesh settings stay on the AP but are **not** migrated into Central, and a mismatch
   can make the AP flap and auto-restore. If your APs use any of these, configure the
   equivalent settings in the target Central AP group *before* converting.
+- **Cluster auto-join** — always shown: a converted AP can automatically join an
+  existing Instant/AOS10 cluster within radio range and inherit *that* cluster's
+  configuration, which can look like a failed migration when the AP actually just
+  landed somewhere unexpected. If a converted AP doesn't behave as expected, check for
+  other clusters nearby before assuming the conversion itself failed. ([source](https://airheads.hpe.com/discussion/ap-convert-command-in-86))
 
 ## Post-migration verification
 
