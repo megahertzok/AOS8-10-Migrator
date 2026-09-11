@@ -181,6 +181,14 @@ If topology hasn't been loaded yet, AP rows fall back to `config_path: "/md"`, w
 
 Before executing a conversion, the Convert & Rollback tab surfaces:
 
+- **AP hardware compatibility** — not every AP model supports `ap convert` (older
+  AP-200 series can't run InstantOS past 6.5; some AP-325 units lack enough memory).
+  "Check AP model compatibility" cross-references your selection against
+  [`proxy-agent/ap_model_support.yaml`](proxy-agent/ap_model_support.yaml), a
+  **best-known, deliberately incomplete** list seeded from community reports — a model
+  that isn't in it is reported as "unknown, verify manually," never silently assumed
+  safe. The Inventory table's Model column shows this for every tracked AP, not just
+  the current selection.
 - **Licensing and group assignment** — `ap convert pre-validate` itself checks that
   each AP is licensed on Central and reports which Central group it will land in.
   This *is* the licensing check; there's no separate Central API call for it. Run it
@@ -290,6 +298,14 @@ immediate reboot may close the channel before output flushes back. If
 **Firmware pre-flight checks** (`proxy-agent/firmware_check.py`) confirm a server is
 *reachable*, never that the specific image file exists — AOS8 doesn't expose an API
 for that. Read each result's `detail`/`error` field, don't just trust `reachable: true`.
+
+**AP model compatibility** (`proxy-agent/ap_model_support.yaml`) is a best-known,
+deliberately incomplete list, not an official HPE support matrix — HPE doesn't publish
+one this tool could fetch and parse. It's seeded from two community sources (see the
+file itself); a model that matches neither its `unsupported` nor `caveats` list is
+reported as "unknown," not "supported." Also UNVERIFIED: the exact key AOS8 uses for
+an AP's model/type in `show ap database long` (`app.py`'s `aos8_aps()` tries "AP Type",
+"Model Name", "Model" — adjust if your controller doesn't populate the Model column).
 
 **Tray icon dependencies** (`pystray` + `Pillow`, for the menu-bar/system-tray icon):
 on macOS, `pystray`'s Objective-C bindings (`pyobjc-core`) fail to *compile* against

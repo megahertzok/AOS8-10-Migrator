@@ -170,7 +170,7 @@
           <input type="file" id="csvImportInput" accept=".csv" hidden />
           <button class="secondary" id="btnExportApsCsv">Export CSV</button>
         </div>
-        <p class="hint">CSV columns: <code>mac</code> (required, the row key), plus any of <code>name, ap_group, state, notes, md_ip, md_name, md_config_path, serial, central_site_id, ap_ip</code> &mdash; all optional. Unknown extra columns are kept for your reference and simply ignored on import.</p>
+        <p class="hint">CSV columns: <code>mac</code> (required, the row key), plus any of <code>name, ap_group, state, notes, md_ip, md_name, md_config_path, serial, central_site_id, ap_ip, model</code> &mdash; all optional. Unknown extra columns are kept for your reference and simply ignored on import.</p>
         <div class="status-line" id="csvImportStatus"></div>
       </div>
 
@@ -184,6 +184,7 @@
             <th>Serial</th>
             <th>Group</th>
             <th>Controller (MD)</th>
+            <th>Model</th>
             <th>State</th>
             <th>Notes</th>
           </tr>
@@ -208,7 +209,14 @@
       </div>
 
       <div class="card">
-        <h3>3a. Add to conversion list &amp; pre-validate</h3>
+        <h3>3a. AP hardware compatibility</h3>
+        <p class="hint">Not every AP model supports <code>ap convert</code> (older AP-200 series can't run past InstantOS 6.5; some AP-325 units lack enough memory). This checks your current selection against a <strong>best-known, deliberately incomplete</strong> compatibility list &mdash; "unknown" means verify manually, not "safe."</p>
+        <button id="btnModelCompatCheck">Check AP model compatibility</button>
+        <div class="status-line" id="modelCompatStatus"></div>
+      </div>
+
+      <div class="card">
+        <h3>3b. Add to conversion list &amp; pre-validate</h3>
         <p class="hint"><code>pre-validate</code> is the official way to confirm an AP is licensed in Central and has a group assigned &mdash; the results appear in the log below. Do this before Execute, not after.</p>
         <div class="button-row">
           <button id="btnConvertAdd">1. Add to conversion list</button>
@@ -218,7 +226,7 @@
       </div>
 
       <div class="card">
-        <h3>3b. Firmware source</h3>
+        <h3>3c. Firmware source</h3>
         <p class="hint">Where the AOS10 image comes from during conversion. Local flash or a TFTP/FTP/SCP server you control are the most common choices for a tightly-managed network; HTTP(S) also works.</p>
         <div class="grid-3">
           <label>Delivery method <span class="required-mark">*</span>
