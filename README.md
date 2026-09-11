@@ -207,6 +207,13 @@ a gate — so you can also cross-check the older way HPE's own guide suggests: l
 `show ap lldp neighbors` from the AP's switch port; a still-AOS8 AP shows as a CAP,
 a converted one shows as an IAP.
 
+**If a converted AP never shows up in Central at all**, before assuming this tool
+did something wrong, check your Central instance's version. Historically, converted
+AP-3xx units weren't recognized by Central — support was added as of the March 2021
+update to Central v2.5.3. An unusually old or non-standard Central deployment could
+still hit this. (See also "AP → Central network reachability" above — a much more
+common cause of the same symptom, and one this tool can actually check for.)
+
 ## Rollback — single AP, group, or site
 
 HPE's docs are explicit that reverting AOS10 back to AOS8 **"cannot be performed at
