@@ -172,6 +172,7 @@
         document.getElementById("aos8Dot").className = "dot dot-on";
         setStatus("aos8Status", "Restored previous session (reload AP inventory to confirm it's still valid).", "ok");
         markStepDone("connect", true);
+        fetchCountryCode();
       }
       if (saved.centralSessionId) {
         state.centralSessionId = saved.centralSessionId;
@@ -253,11 +254,28 @@
       setStatus("aos8Status", `Connected to ${host}.`, "ok");
       markStepDone("connect", !!state.centralSessionId || true);
       saveSession();
+      fetchCountryCode();
     } catch (err) {
       document.getElementById("aos8Dot").className = "dot dot-off";
       setStatus("aos8Status", `Connect failed: ${err.message}`, "error");
     }
   });
+
+  /** Best-effort: shows the controller's configured regulatory domain / country code
+   * next to the pre-flight warning that `ap convert` permanently writes it onto every
+   * AP it converts. Never blocks the workflow if the lookup itself fails. */
+  async function fetchCountryCode() {
+    const el = document.getElementById("countryCodeValue");
+    if (!state.aos8SessionId || !el) return;
+    try {
+      const data = await api("GET", "/api/aos8/country-code", { params: { session_id: state.aos8SessionId } });
+      el.textContent = data.country_code
+        ? `${data.country_code} (double-check this is correct for the APs' destination before continuing)`
+        : "could not be detected automatically — confirm manually on the controller before continuing";
+    } catch (err) {
+      el.textContent = "could not be detected automatically — confirm manually on the controller before continuing";
+    }
+  }
 
   document.getElementById("btnAos8Disconnect").addEventListener("click", async () => {
     try {
@@ -523,8 +541,17 @@
     }
   });
 
+  const ackCountryCodeBox = document.getElementById("ackCountryCode");
+  const btnConvertExecuteEl = document.getElementById("btnConvertExecute");
+  function syncExecuteButtonState() {
+    btnConvertExecuteEl.disabled = !ackCountryCodeBox.checked;
+  }
+  ackCountryCodeBox.addEventListener("change", syncExecuteButtonState);
+  syncExecuteButtonState();
+
   document.getElementById("btnConvertExecute").addEventListener("click", async () => {
-    if (!confirm(`Execute conversion for ${state.selected.size} AP(s)? This reboots them into AOS10.`)) return;
+    if (!ackCountryCodeBox.checked) return alert("Check the country-code acknowledgement in Step 3 before executing.");
+    if (!confirm(`Execute conversion for ${state.selected.size} AP(s)? This reboots them into AOS10 and permanently writes the controller's country code onto each one.`)) return;
     try {
       requireAos8();
       const groups = selectedGroups();

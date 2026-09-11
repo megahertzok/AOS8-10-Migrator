@@ -168,6 +168,29 @@ def aos8_discover():
     return jsonify(client.discover(candidates))
 
 
+@app.get("/api/aos8/country-code")
+def aos8_country_code():
+    """Best-effort lookup of the controller's configured regulatory domain / country
+    code, for the pre-flight warning that `ap convert` permanently writes this onto
+    every AP it converts. Non-fatal on failure -- the GUI still shows a static warning
+    even if this specific lookup doesn't work against a given firmware/profile name."""
+    session_id = request.args.get("session_id")
+    try:
+        client = _aos8_client(session_id)
+    except KeyError as exc:
+        return error_response(exc, 401)
+    config_path = request.args.get("config_path", "/mm")
+    try:
+        data = client.show_command(endpoints["aos8"]["show_regulatory_domain_command"], config_path=config_path)
+    except Exception as exc:  # noqa: BLE001 -- best-effort, never blocks the pre-flight step
+        return jsonify({"country_code": None, "error": str(exc)})
+
+    rows = _extract_rows(data, "Regulatory Domain Profile", "AP Regulatory Domain Profile")
+    row = rows[0] if rows else data
+    country_code = _first(row, "Country Code", "country-code", "Country")
+    return jsonify({"country_code": country_code, "raw": data if not country_code else None})
+
+
 @app.get("/api/aos8/topology")
 def aos8_topology_view():
     """Discover every Mobility Controller (MD) the Mobility Master manages, via
