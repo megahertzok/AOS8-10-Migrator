@@ -355,6 +355,20 @@
         <button id="btnConvertCancel" class="secondary">Cancel in-flight (selected)</button>
         <pre class="log" id="convertLog"></pre>
       </div>
+
+      <div class="card">
+        <h3>Live status</h3>
+        <p class="hint">Polls <code>show ap convert-status</code> every 5s for the controller(s) involved in your last Execute, so you can watch progress without manually clicking "Refresh status" in Step 3. Stops automatically after 30 minutes if you leave it running &mdash; <code>show ap convert-status</code>'s exact response shape is UNVERIFIED, so rows below use the same generic per-item extraction as the Pre-validate table (real content either way, just possibly unlabeled).</p>
+        <div class="button-row">
+          <button id="btnStartExecutePolling" class="secondary">Start live status</button>
+          <button id="btnStopExecutePolling" class="secondary" disabled>Stop</button>
+        </div>
+        <table class="data-table" id="executeStatusTable" hidden>
+          <thead><tr><th>Controller</th><th>Status</th></tr></thead>
+          <tbody id="executeStatusTableBody"></tbody>
+        </table>
+      </div>
+
       <p class="hint">Conversion takes a few minutes per AP. Once it reboots and checks into Central, continue to <strong>Step 5 &mdash; Verify in Central</strong>.</p>
 
       <div class="card">

@@ -722,6 +722,94 @@
   ackCountryCodeBox.addEventListener("change", syncExecuteButtonState);
   syncExecuteButtonState();
 
+  // ------------------------------------------------- live execute status
+  // show ap convert-status's exact response shape is UNVERIFIED (same caveat as
+  // pre-validate), so this uses its own generic per-item extraction -- named
+  // distinctly from the Pre-flight table's helpers rather than sharing them, since
+  // the two features are independent and this keeps them that way.
+
+  let executeStatusTimer = null;
+  let executeStatusStopAt = null;
+
+  function findStatusRows(result) {
+    if (!result || typeof result !== "object") return null;
+    for (const key of ["Convert Status", "AP Convert Status", "Status", "aps", "APs"]) {
+      if (Array.isArray(result[key])) return result[key];
+    }
+    for (const value of Object.values(result)) {
+      if (Array.isArray(value) && value.length && typeof value[0] === "object") return value;
+    }
+    return null;
+  }
+
+  function statusItemLabel(item) {
+    for (const key of ["AP Name", "Name", "ap_name", "AP Wired MAC Address", "Wired MAC Address", "mac", "MAC Address"]) {
+      if (item && item[key]) return item[key];
+    }
+    return null;
+  }
+
+  async function pollExecuteStatusOnce(configPaths) {
+    const tbody = document.getElementById("executeStatusTableBody");
+    const table = document.getElementById("executeStatusTable");
+    tbody.innerHTML = "";
+    let rowCount = 0;
+    for (const config_path of configPaths) {
+      try {
+        const data = await api("GET", "/api/aos8/convert/status", { params: { session_id: state.aos8SessionId, config_path } });
+        const rows = findStatusRows(data);
+        if (rows && rows.length) {
+          rows.forEach((item, idx) => {
+            const tr = document.createElement("tr");
+            const label = statusItemLabel(item) || `AP #${idx + 1}`;
+            tr.innerHTML = `<td>${config_path} &mdash; ${label}</td><td>${typeof item === "object" ? JSON.stringify(item) : String(item)}</td>`;
+            tbody.appendChild(tr);
+            rowCount++;
+          });
+        } else {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${config_path}</td><td>${JSON.stringify(data)}</td>`;
+          tbody.appendChild(tr);
+          rowCount++;
+        }
+      } catch (err) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${config_path}</td><td>ERROR: ${err.message}</td>`;
+        tbody.appendChild(tr);
+        rowCount++;
+      }
+    }
+    table.hidden = rowCount === 0;
+    if (executeStatusStopAt && Date.now() > executeStatusStopAt) stopExecutePolling();
+  }
+
+  function startExecutePolling() {
+    try {
+      requireAos8();
+    } catch (err) {
+      return alert(err.message);
+    }
+    const groups = selectedGroups();
+    if (!groups.length) return alert("No APs selected — check some in the Inventory tab.");
+    stopExecutePolling();
+    const configPaths = groups.map((g) => g.config_path);
+    executeStatusStopAt = Date.now() + 30 * 60 * 1000; // auto-stop after 30 minutes
+    pollExecuteStatusOnce(configPaths);
+    executeStatusTimer = setInterval(() => pollExecuteStatusOnce(configPaths), 5000);
+    document.getElementById("btnStartExecutePolling").disabled = true;
+    document.getElementById("btnStopExecutePolling").disabled = false;
+  }
+
+  function stopExecutePolling() {
+    if (executeStatusTimer) { clearInterval(executeStatusTimer); executeStatusTimer = null; }
+    executeStatusStopAt = null;
+    document.getElementById("btnStartExecutePolling").disabled = false;
+    document.getElementById("btnStopExecutePolling").disabled = true;
+  }
+
+  document.getElementById("btnStartExecutePolling").addEventListener("click", startExecutePolling);
+  document.getElementById("btnStopExecutePolling").addEventListener("click", stopExecutePolling);
+
   document.getElementById("btnConvertExecute").addEventListener("click", async () => {
     if (!ackCountryCodeBox.checked) return alert("Check the country-code acknowledgement in Step 3 before executing.");
     if (!confirm(`Execute conversion for ${state.selected.size} AP(s)? This reboots them into AOS10 and permanently writes the controller's country code onto each one.`)) return;
@@ -731,6 +819,7 @@
       const firmware = firmwareParams();
       const data = await api("POST", "/api/aos8/convert/execute", { body: { session_id: state.aos8SessionId, groups, firmware } });
       logGroupResults("convertLog", "Execute", data);
+      startExecutePolling();
     } catch (err) {
       appendLog("convertLog", `ERROR: ${err.message}`);
     }
