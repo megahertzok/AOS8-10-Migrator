@@ -92,6 +92,19 @@ per-REST-call trace on top). Three ways to see it:
 `proxy-agent/proxy_agent.log*` is gitignored, same as `config.yaml` and the tracking
 database — it's local runtime state, never committed.
 
+### Webhook notifications
+
+Set `notifications.webhook_url` in `config.yaml` to get pinged (Slack incoming
+webhooks work directly via `{"text": ...}`; any other JSON-accepting endpoint gets
+the full payload too) so you don't have to babysit the browser tab. Two events fire
+it: a conversion batch being **submitted** (`ap convert active`'s REST call
+succeeded or failed — not confirmation that every AP has actually finished
+converting, since AOS8 has no callback of its own for that; use the Execute step's
+live-status panel or the Verify step for real completion), and a rollback actually
+**completing** (that one genuinely runs synchronously, so it's true completion). A
+broken or unconfigured webhook never breaks the action that triggered it — failures
+are logged, not raised.
+
 ## Security model
 
 - Controller, Central, and AP SSH credentials are entered in the browser and sent
