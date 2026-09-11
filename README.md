@@ -134,6 +134,17 @@ GUI) wipes all of it and reloads the page. This is separate from — and doesn't
 touch — actual migration history, which lives in the proxy agent's tracking
 database (`proxy-agent/migration_state.db`), not the browser.
 
+### Audit log
+
+Separate from the Tracking dashboard's live-state CSV export (a snapshot of where
+each AP is *right now*), the tracking database also keeps an append-only record of
+every state change any tracked AP has ever gone through — written automatically
+whenever `migration_store.upsert_ap()` sees a state actually change, so nothing has
+to remember to log it at each of the many call sites that touch AP state across
+`app.py`. **"Export audit log (CSV)"** on the Tracking dashboard downloads the full
+history (timestamp, MAC, name, state before/after, notes) for compliance or
+change-management recordkeeping independent of current state.
+
 ## The migration workflow, step by step
 
 The GUI's left sidebar is a numbered, vertical checklist — follow it top to bottom.
@@ -158,6 +169,14 @@ Fields marked with a red **\*** are required to move on; everything else (TLS
 verification, refresh tokens, AP SSH credentials, firmware server auth) is optional —
 rollback in particular is entirely optional and never blocks the main flow.
 
+Execute has a **live status** panel: it auto-starts after you click "Execute
+conversion" and polls `show ap convert-status` every 5s for the controller(s)
+involved, so you can watch a batch progress without manually clicking "Refresh
+status" back in Step 3. It stops automatically after 30 minutes if left running, or
+any time via the Stop button. `show ap convert-status`'s exact response shape is
+`UNVERIFIED`, same caveat as pre-validate's table — it finds whatever array of
+per-item results the response contains rather than guessing specific field names.
+
 ## Getting your Aruba Central API credentials
 
 The Connect step's Aruba Central card needs four things: **API Gateway base URL**,
@@ -176,8 +195,22 @@ FAQ](https://arubanetworking.hpe.com/techdocs/Archived/central/2.5.5/content/faq
 
 Access tokens expire after **2 hours**; the refresh token is valid for **14 days** and
 lets the proxy agent refresh automatically without you regenerating anything by hand —
-worth filling in even though the GUI marks it optional. These same steps are also
-shown inline in the GUI itself (Connect step → "How do I get these values?").
+worth filling in even though the GUI marks it optional. The refresh happens
+reactively (`central_client.py`'s `_request()` catches a 401, refreshes, and retries
+once) rather than on a timer, which is simpler and self-correcting; a successful
+refresh is logged as an always-on event (visible in the live log viewer, not just
+Debug mode). Once the *refresh* token itself expires — 14 days — you'll get a clear
+error telling you to generate a new one in Central and reconnect, instead of a raw
+HTTP error. These same steps are also shown inline in the GUI itself (Connect step →
+"How do I get these values?").
+
+Site and device listing (`central_client.py`'s `list_sites()`/`list_devices()`) page
+through Central's `offset`/`limit` convention automatically, so a large tenant's full
+device inventory or site list isn't silently truncated to one page. A `429` from
+Central (its own rate limiter, not a bug) is retried automatically with backoff — the
+`Retry-After` header if Central sends one, else a fixed 2s — up to 3 attempts, both
+here and in the per-device site-assignment loop, since both go through the same
+`_request()`.
 
 ## Mobility Conductor / Mobility Device hierarchy
 
@@ -187,28 +220,74 @@ The distinction matters because the Mobility Conductor is responsible for orches
 
 This can be confusing when you're looking at the environment from the top of the hierarchy. The AP is visible from the Conductor, the configuration is visible from the Conductor, and the AP may even *appear* to belong to the Conductor. But when it comes time to perform AP-local operations, Aruba expects those commands to be sent to the correct Mobility Device. 
 
-If topology hasn't been loaded yet, AP rows fall back to `config_path: "/md"`, which only works correctly for a standalone controller (not a real MM with multiple MDs) — always load topology first in a real MM deployment.
+If topology hasn't been loaded yet, AP rows fall back to `config_path: "/md"`, which only works correctly for a standalone controller (not a real MM with multiple MDs) — always load topology first in a real MM deployment. The Connect step has a **"This is a standalone controller"** checkbox specifically so this fallback is an intentional choice, not an accident: leaving it unchecked shows a warning on Inventory if topology hasn't been loaded, so a real-MM user who simply forgot doesn't silently get actions routed to the wrong controller. `show switches` on an actual standalone controller (no MM) is `UNVERIFIED` — confirm it returns something sensible (or errors cleanly) against real standalone hardware; the checkbox's own fallback (skip topology, target `/md` directly) doesn't depend on that either way.
 
 
 ## Pre-flight checks
 
 Before executing a conversion, the Convert & Rollback tab surfaces:
 
+- **AP hardware compatibility** — not every AP model supports `ap convert` (older
+  AP-200 series can't run InstantOS past 6.5; some AP-325 units lack enough memory).
+  "Check AP model compatibility" cross-references your selection against
+  [`proxy-agent/ap_model_support.yaml`](proxy-agent/ap_model_support.yaml), a
+  **best-known, deliberately incomplete** list seeded from community reports — a model
+  that isn't in it is reported as "unknown, verify manually," never silently assumed
+  safe. The Inventory table's Model column shows this for every tracked AP, not just
+  the current selection.
+- **Controller firmware version** — `ap convert` was introduced in ArubaOS 8.6.0.0;
+  on older firmware the command doesn't exist and conversion fails confusingly. "Check
+  controller firmware" cross-references your selected APs' anchor controller(s) against
+  the version reported by `show switches` (also flagged in the Topology table on the
+  Inventory tab) and warns if any are below the minimum.
 - **Licensing and group assignment** — `ap convert pre-validate` itself checks that
   each AP is licensed on Central and reports which Central group it will land in.
   This *is* the licensing check; there's no separate Central API call for it. Run it
-  and read the result before Execute.
+  and read the result before Execute. The response is broken out per-AP in a table
+  where possible — `ap_convert_prevalidate`'s exact response shape is `UNVERIFIED`
+  (see "Known gaps"), so rather than guess specific "status"/"reason" field names
+  that could misrepresent a result if wrong, this finds whatever array of per-item
+  results the response contains and shows each item's full raw content; if no array
+  is found at all, it falls back to a note pointing at the raw JSON in the log below
+  (now pretty-printed, not a single-line blob).
 - **Firmware source reachability** — pick a delivery method (local-flash, or a
   tftp/ftp/http/https/scp server) and click "Test firmware source." This confirms the
   server/flash is *reachable*, not that the exact image file is present — AOS8 has no
-  documented API for the latter. For local-flash, it runs a best-effort `show storage`
-  query and shows you the raw listing to eyeball the filename yourself.
+  documented API for the latter. For local-flash, it tries a short list of candidate
+  commands (`show storage`, `show image version`, `show flash` — see
+  `endpoints.yaml`, none confirmed for certain against a real controller) and uses
+  whichever one your firmware accepts, showing you the raw listing to eyeball the
+  filename yourself.
 - **Configuration-retention warnings** — always shown, from HPE's "Configuration
   retained or migrated" doc: the AP's native/management VLAN is never retained after
   conversion (it always assumes VLAN 1 on the uplink); AP1X, HTTP proxy, PPPoE, and
   mesh settings stay on the AP but are **not** migrated into Central, and a mismatch
   can make the AP flap and auto-restore. If your APs use any of these, configure the
   equivalent settings in the target Central AP group *before* converting.
+- **Country code is permanent** — `ap convert` writes the controller's configured
+  regulatory domain (country code) onto every AP it converts, and it **cannot be
+  changed afterward** without a factory reset; it also permanently ties FCC-locked
+  hardware to a US-only regulatory domain. The Pre-flight step shows a best-effort
+  detected country code (via a `show ap regulatory-domain-profile` lookup — UNVERIFIED
+  exact command, see `endpoints.yaml`) and requires you to check an acknowledgement box
+  before Execute unlocks. If you're converting APs destined for a Central site in a
+  *different* country than this controller, stop and re-home them from a controller in
+  the correct region first — there is no supported way to fix this after the fact.
+  ([source](https://airheads.hpe.com/discussion/ap-convert-command-in-86),
+  [source](https://blog.theitrebel.com/2020/04/28/two-simple-words/))
+- **Cluster auto-join** — always shown: a converted AP can automatically join an
+  existing Instant/AOS10 cluster within radio range and inherit *that* cluster's
+  configuration, which can look like a failed migration when the AP actually just
+  landed somewhere unexpected. If a converted AP doesn't behave as expected, check for
+  other clusters nearby before assuming the conversion itself failed. ([source](https://airheads.hpe.com/discussion/ap-convert-command-in-86))
+- **AP → Central network reachability (approximate)** — a converted AP that never
+  appears in Central is very often not a conversion problem at all, but its VLAN
+  having no path to Aruba's cloud onboarding services. "Check reachability" probes
+  `device.arubanetworks.com` (Activate) and your configured Central Gateway host —
+  but from the *proxy agent's* network, not the AP's own VLAN, so treat it as a useful
+  signal, not a guarantee, if those differ. DNS and NTP on the AP's VLAN can't be
+  tested from here at all — confirm those manually; a badly-skewed clock can break
+  the TLS handshake to Central on its own.
 
 ## Post-migration verification
 
@@ -219,6 +298,27 @@ the intended target (once assigned). It doesn't block anything — it's a checkl
 a gate — so you can also cross-check the older way HPE's own guide suggests: look at
 `show ap lldp neighbors` from the AP's switch port; a still-AOS8 AP shows as a CAP,
 a converted one shows as an IAP.
+
+### If the proxy agent restarts mid-migration
+
+Any AP left in a `converting` or `pre_validated` state means an action was started
+but never confirmed finished — most likely the proxy agent restarted, or a browser
+tab closed before a batch completed. A banner appears at the top of the GUI (any
+page, no AOS8/Central session required — it's a pure read of the local tracking
+database) listing how many; "Dismiss" won't nag you again for the same count, but it
+comes back if the number changes. Nothing resumes automatically — review the
+Tracking dashboard and decide per-AP whether to re-check status, re-run pre-validate,
+or treat it as done.
+
+## Clearing a stale conversion job
+
+This tool never uses `ap convert active all-aps` — Execute always targets
+`specific-aps` — specifically because a community report on HPE Airheads describes a
+leftover `all-aps` job silently converting newly-joining APs that were never intended
+for migration. Still, a job from `add`/`pre-validate` can be left outstanding on a
+controller if you navigate away instead of finishing or cancelling it. The Execute
+step has a **"Clear pending job"** button (`ap convert clear-all`) for exactly that —
+it's controller-wide, not limited to your current AP selection, so use it deliberately.
 
 ## Rollback — single AP, group, or site
 
@@ -285,24 +385,54 @@ against HPE's own docs. What's still `UNVERIFIED` in
 [`proxy-agent/endpoints.yaml`](proxy-agent/endpoints.yaml) is the exact **REST object
 name** each of those write actions maps to (no public doc confirms them) and the exact
 JSON field names in showcommand responses (`app.py`'s `_first()`/`_extract_rows()`
-helpers try several likely variants). Before relying on this against a real controller:
+helpers try several likely variants, matched case-insensitively as a fallback since
+firmware versions have been observed to differ only in key casing). If the AP
+inventory silently comes back short, check the proxy agent's log — `aos8_aps()` logs a
+warning naming exactly how many rows it had to skip for lacking a recognized MAC
+field, so a wrong guess is loud, not silent. Before relying on this against a real
+controller:
 
 1. Connect to the MM/controller in the GUI.
-2. Hit `GET /api/aos8/discover` (probes the controller's own live API index at `/api`
-   after login) to find the real endpoint names.
+2. Open **Connect → Advanced: API diagnostics** and click **Discover API endpoints**
+   (probes the controller's own live API index at `/api` after login) to find the real
+   endpoint names, or run any `show ...` command directly with **Run a read-only show
+   command** to see the raw JSON shape a field-name guess needs to match. Both are
+   right there in the GUI now — no separate REST client needed.
 3. Correct `proxy-agent/endpoints.yaml` to match, and adjust the field-name lists in
    `app.py` if the "Controller (MD)" column or AP serials don't populate correctly.
 
-**SSH rollback** (`proxy-agent/ssh_client.py`) uses a non-interactive `exec_command`,
-which works for many Aruba CLI single-shot commands over SSH but not necessarily all —
-some Aruba CLIs expect an interactive PTY instead, and a command that triggers an
-immediate reboot may close the channel before output flushes back. If
-`convert-aos-ap cap` doesn't behave as expected against a real AP, switch to
-`client.invoke_shell()` there instead (see the docstring in that file).
+**SSH rollback** (`proxy-agent/ssh_client.py`) tries a non-interactive `exec_command`
+first, which works for many Aruba CLI single-shot commands over SSH but not
+necessarily all — some Aruba CLIs expect an interactive PTY instead, and a command
+that triggers an immediate reboot may close the channel before an exit status is
+flushed back. `run_ap_command()` now detects both symptoms (an `SSHException`, or
+paramiko's exit status `-1`, its documented signal for "channel closed before an exit
+status arrived") and automatically retries once via `invoke_shell()` — unit-tested
+against mocked SSH behavior for both trigger paths, but still `UNVERIFIED` against a
+real AP, since which path AOS10's `convert-aos-ap cap` actually needs can only be
+confirmed against real hardware.
 
 **Firmware pre-flight checks** (`proxy-agent/firmware_check.py`) confirm a server is
 *reachable*, never that the specific image file exists — AOS8 doesn't expose an API
 for that. Read each result's `detail`/`error` field, don't just trust `reachable: true`.
+
+**AP model compatibility** (`proxy-agent/ap_model_support.yaml`) is a best-known,
+deliberately incomplete list, not an official HPE support matrix — HPE doesn't publish
+one this tool could fetch and parse. It's seeded from two community sources (see the
+file itself); a model that matches neither its `unsupported` nor `caveats` list is
+reported as "unknown," not "supported." Also UNVERIFIED: the exact key AOS8 uses for
+an AP's model/type in `show ap database long` (`app.py`'s `aos8_aps()` tries "AP Type",
+"Model Name", "Model" — adjust if your controller doesn't populate the Model column).
+
+**Central error messages** now surface whatever human-readable description Central's
+own error response carries (`central_client.py`'s `_format_error()` tries a few
+common JSON keys — `description`, `error_description`, `message`, `error`) instead of
+a bare HTTP status line, which is all a plain `resp.raise_for_status()` used to show.
+This matters most for site assignment: a device that's already claimed under a
+different Central customer/app instance, or an invalid `site_id`, now shows Central's
+own explanation instead of just "409 Client Error." The exact key Central uses isn't
+confirmed for every error type — if you hit one that comes back as a bare status
+line, check the raw response body and add the key to `_format_error()`.
 
 **Tray icon dependencies** (`pystray` + `Pillow`, for the menu-bar/system-tray icon):
 on macOS, `pystray`'s Objective-C bindings (`pyobjc-core`) fail to *compile* against
