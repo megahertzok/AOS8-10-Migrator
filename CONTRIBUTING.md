@@ -24,9 +24,21 @@ actually confirmed vs. best-effort.
 **Keep this convention.** If you add something you haven't verified against real
 equipment, mark it clearly rather than presenting it as confirmed — the next person
 (possibly debugging a live migration) needs to know which parts to trust and which to
-double-check first. If you *do* verify something previously marked `UNVERIFIED`
-(e.g. against your own lab controller), please update the comment/doc — that's one of
-the most valuable kinds of contribution here.
+double-check first. New `UNVERIFIED` guesses should also get a tracker issue: file one
+with the `unverified` label (exact file:line references help), add it to the relevant
+section of the [Verification tracker](../../issues) master issue, and it'll be picked
+up in searches for `label:unverified`.
+
+If you *do* verify something previously marked `UNVERIFIED` (e.g. against your own lab
+controller), that's one of the most valuable kinds of contribution here:
+
+1. Open an issue using the **Verification report** template
+   (`.github/ISSUE_TEMPLATE/verification_report.md`), reference the specific tracker
+   issue number, and describe what you tested and what you found.
+2. If it needs correcting, follow up with a PR that updates the code/comment/doc and
+   removes the `UNVERIFIED` marker.
+3. Close the tracker issue — the master [Verification tracker](../../issues) checklist
+   ticks it automatically.
 
 ## Security rules — non-negotiable
 
