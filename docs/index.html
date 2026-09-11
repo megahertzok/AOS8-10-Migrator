@@ -321,6 +321,13 @@
         <div class="status-line" id="firmwareCheckStatus"></div>
       </div>
 
+      <div class="card">
+        <h3>3c. AP &rarr; Central network reachability <span class="hint-inline">(approximate)</span></h3>
+        <p class="hint">A very common real-world failure isn't the conversion itself &mdash; it's a converted AP that never appears in Central because its VLAN can't reach Aruba's cloud services at all (DNS, outbound HTTPS, firewall/proxy rules). This checks from <strong>the proxy agent's own network</strong>, which is a useful signal but not a guarantee if the AP's VLAN has a different egress path than the proxy agent's &mdash; the real confirmation is the Verify step after conversion. Also confirm manually: the AP's VLAN needs working <strong>DNS</strong> and <strong>NTP</strong> (a badly-skewed clock can break the TLS handshake to Central), neither of which can be tested from here.</p>
+        <button id="btnCentralReachabilityCheck">Check reachability</button>
+        <div class="status-line" id="centralReachabilityStatus"></div>
+      </div>
+
       <pre class="log" id="preflightLog"></pre>
       <p class="hint">When pre-validate reports success and your firmware source checks out, continue to <strong>Step 4 &mdash; Execute conversion</strong>.</p>
     </section>
