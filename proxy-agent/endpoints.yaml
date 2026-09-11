@@ -33,6 +33,17 @@ aos8:
   # storage" is the common ArubaOS convention. Adjust if your firmware uses another.
   show_storage_command: "show storage"
 
+  # Best-effort per-AP effective-config dump, for the pre-conversion snapshot (see
+  # app.py aos8_snapshot_config()). UNVERIFIED -- tries each in order and uses
+  # whichever the controller accepts. "{ap_name}" is substituted with the AP's own
+  # name (from show ap database). Not parsed into specific fields (VLAN/AP1X/proxy/
+  # PPPoE/mesh) since the response shape isn't confirmed -- stored raw for manual
+  # reference instead.
+  show_ap_config_commands:
+    - "show ap config effective ap-name {ap_name}"
+    - "show running-config ap-name {ap_name}"
+    - "show ap details ap-name {ap_name}"
+
   # AP conversion family. REST object *names* are still UNVERIFIED (confirm via
   # /api/aos8/discover) but the CLI verbs and their exact argument shapes are now
   # confirmed against HPE's own docs (Migrating controller managed APs to AOS 10):
