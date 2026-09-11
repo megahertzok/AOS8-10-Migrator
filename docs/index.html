@@ -220,6 +220,13 @@
         </div>
       </div>
 
+      <div class="callout warning">
+        <span>&#9888;</span>
+        <div>
+          <strong>Watch for auto-join into a nearby cluster.</strong> A converted AP can automatically join an existing Instant/AOS10 cluster within radio range and inherit <em>that</em> cluster's configuration &mdash; which can look like a failed migration when the AP is actually fine, just in the wrong place. If a converted AP doesn't land where you expected, check for other clusters nearby before assuming something went wrong. (<a href="https://airheads.hpe.com/discussion/ap-convert-command-in-86" target="_blank" rel="noopener">source</a>)
+        </div>
+      </div>
+
       <div class="card">
         <h3>3a. AP hardware compatibility</h3>
         <p class="hint">Not every AP model supports <code>ap convert</code> (older AP-200 series can't run past InstantOS 6.5; some AP-325 units lack enough memory). This checks your current selection against a <strong>best-known, deliberately incomplete</strong> compatibility list &mdash; "unknown" means verify manually, not "safe."</p>

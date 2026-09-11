@@ -220,6 +220,11 @@ Before executing a conversion, the Convert & Rollback tab surfaces:
   the correct region first — there is no supported way to fix this after the fact.
   ([source](https://airheads.hpe.com/discussion/ap-convert-command-in-86),
   [source](https://blog.theitrebel.com/2020/04/28/two-simple-words/))
+- **Cluster auto-join** — always shown: a converted AP can automatically join an
+  existing Instant/AOS10 cluster within radio range and inherit *that* cluster's
+  configuration, which can look like a failed migration when the AP actually just
+  landed somewhere unexpected. If a converted AP doesn't behave as expected, check for
+  other clusters nearby before assuming the conversion itself failed. ([source](https://airheads.hpe.com/discussion/ap-convert-command-in-86))
 
 ## Post-migration verification
 
