@@ -13,11 +13,17 @@ import requests
 
 
 def check_http(host, path="", timeout=5, use_https=False):
+    """Generic HTTP(S) HEAD reachability probe -- confirms a TLS/TCP handshake and an
+    HTTP response, nothing about what's actually served at the path. Reused for both
+    the firmware-source check (where the caveat is "doesn't confirm the image file
+    exists") and the Central-reachability check (where it's just "server responded");
+    callers add whichever caveat is relevant in their own detail text/GUI copy rather
+    than baking one into this shared helper."""
     scheme = "https" if use_https else "http"
     url = f"{scheme}://{host}/{path.lstrip('/')}" if path else f"{scheme}://{host}/"
     try:
         resp = requests.head(url, timeout=timeout, verify=False, allow_redirects=True)
-        return {"reachable": resp.status_code < 500, "status_code": resp.status_code, "detail": "HTTP HEAD reachability check only -- does not confirm the exact image file exists"}
+        return {"reachable": resp.status_code < 500, "status_code": resp.status_code, "detail": f"HTTP HEAD got a response (status {resp.status_code}) -- confirms the server is reachable, not what's served at this path"}
     except requests.RequestException as exc:
         return {"reachable": False, "error": str(exc)}
 
@@ -59,6 +65,35 @@ def check_tftp(host, filename, timeout=5, port=69):
     finally:
         if sock is not None:
             sock.close()
+
+
+def check_central_reachability(central_host=None, timeout=5):
+    """Best-effort check that there's a network path to Aruba's cloud onboarding
+    services -- a very common real-world migration failure mode distinct from
+    firmware delivery: the AP converts successfully but never appears in Central
+    because its VLAN can't actually reach Central at all (DNS, outbound HTTPS,
+    firewall/proxy rules).
+
+    Important caveat, surfaced in every result: this runs from the *proxy agent's*
+    network, not the AP's own VLAN -- if those differ (a management VLAN with a
+    different egress path than the AP's client VLAN, for instance), a pass here
+    doesn't guarantee the AP itself can reach these hosts, and a fail here doesn't
+    necessarily mean the AP can't either. It's a useful signal, not a guarantee --
+    the real test is watching the AP actually appear online in Central after
+    conversion (see the Verify step).
+
+    Checks device.arubanetworks.com (Aruba's Activate zero-touch provisioning
+    service, well-documented as part of the onboarding path) and, if provided, the
+    user's own configured Central API Gateway host -- reusing a value already
+    entered rather than guessing a region-specific Central hostname.
+    """
+    targets = {"device.arubanetworks.com (Activate)": "device.arubanetworks.com"}
+    if central_host:
+        targets[f"{central_host} (your configured Central Gateway)"] = central_host
+    results = {}
+    for label, host in targets.items():
+        results[label] = check_http(host, use_https=True, timeout=timeout)
+    return results
 
 
 def check_firmware_source(server_type, host, filename=None, path=None, port=None):
