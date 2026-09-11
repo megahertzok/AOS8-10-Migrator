@@ -201,8 +201,11 @@ Before executing a conversion, the Convert & Rollback tab surfaces:
 - **Firmware source reachability** — pick a delivery method (local-flash, or a
   tftp/ftp/http/https/scp server) and click "Test firmware source." This confirms the
   server/flash is *reachable*, not that the exact image file is present — AOS8 has no
-  documented API for the latter. For local-flash, it runs a best-effort `show storage`
-  query and shows you the raw listing to eyeball the filename yourself.
+  documented API for the latter. For local-flash, it tries a short list of candidate
+  commands (`show storage`, `show image version`, `show flash` — see
+  `endpoints.yaml`, none confirmed for certain against a real controller) and uses
+  whichever one your firmware accepts, showing you the raw listing to eyeball the
+  filename yourself.
 - **Configuration-retention warnings** — always shown, from HPE's "Configuration
   retained or migrated" doc: the AP's native/management VLAN is never retained after
   conversion (it always assumes VLAN 1 on the uplink); AP1X, HTTP proxy, PPPoE, and
