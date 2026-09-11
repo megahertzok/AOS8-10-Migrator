@@ -5,6 +5,7 @@ proxy-agent/venv/
 proxy-agent/__pycache__/
 proxy-agent/*.pyc
 proxy-agent/proxy_agent.log*
+proxy-agent/ap_known_hosts
 
 # OS / editor cruft
 .DS_Store

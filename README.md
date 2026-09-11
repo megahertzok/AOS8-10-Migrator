@@ -372,6 +372,13 @@ correct per-AP action for each one:
   the AP reappears under its `original_ap_group` (a column the tracking store
   preserves from first discovery, separate from the live `ap_group` field) to confirm
   it landed back where it started.
+- **SSH host keys are trust-on-first-use**: the first SSH to a given AP IP pins its
+  host key to `proxy-agent/ap_known_hosts` (local to your machine, never committed).
+  A later connection to that same IP with a *different* key — an AP swapped in
+  without updating this file, or a genuine on-path attacker — fails with a clear
+  "host key ... does not match" error instead of connecting anyway. If you've
+  legitimately re-provisioned an AP at that IP, delete its line from
+  `ap_known_hosts` (or the whole file) and retry.
 
 ## CSV workflows
 
