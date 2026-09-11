@@ -1,0 +1,33 @@
+# Best-known AP hardware/model compatibility for `ap convert`.
+#
+# This is NOT an official, comprehensive HPE support matrix -- HPE doesn't publish one
+# in a form that could be fetched and parsed for this tool (see README "Known gaps").
+# It's seeded from community reports (an HPE Airheads thread and a field blog post,
+# both linked below) and is deliberately incomplete. A model that matches neither list
+# below is treated as "unknown" -- a warning to verify manually, never a silent pass
+# and never a hard block, since a false "unsupported" would be worse than a missed
+# warning here.
+#
+# `match` is a case-insensitive regex tested against whatever AOS8 reports as the AP's
+# model/type (`show ap database long`'s "AP Type"/"Model" field -- UNVERIFIED exact key,
+# see endpoints.yaml and app.py's _first() call for it).
+#
+# unsupported: known to NOT meaningfully support ap convert.
+# caveats: known to support it, but with a specific gotcha worth flagging before you convert.
+
+unsupported:
+  - match: "AP-20[0-9]"
+    reason: >-
+      AP-200 series can't run InstantOS/AOS10 past 6.5 -- conversion isn't practically
+      usable on this hardware. (community report, HPE Airheads)
+
+caveats:
+  - match: "AP-325"
+    reason: >-
+      Some AP-325 units can't convert due to insufficient onboard memory -- verify
+      free memory on the specific unit before converting, not just the model number.
+      (community report, theitrebel.com)
+
+# Sources:
+#   https://airheads.hpe.com/discussion/ap-convert-command-in-86
+#   https://blog.theitrebel.com/2020/04/28/two-simple-words/
