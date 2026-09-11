@@ -253,6 +253,7 @@
       setStatus("aos8Status", `Connected to ${host}.`, "ok");
       markStepDone("connect", !!state.centralSessionId || true);
       saveSession();
+      checkInProgress();
     } catch (err) {
       document.getElementById("aos8Dot").className = "dot dot-off";
       setStatus("aos8Status", `Connect failed: ${err.message}`, "error");
@@ -861,6 +862,45 @@
 
   document.getElementById("trackingAutoRefresh").addEventListener("change", armTrackingAutoRefresh);
 
+  // ------------------------------------------------- in-progress banner
+  // Surfaces APs left in "converting"/"pre_validated" from a previous proxy-agent
+  // run (crash, restart, or a closed browser tab mid-migration) -- doesn't resume
+  // anything automatically, just makes sure it isn't silently forgotten. This is a
+  // pure DB read, no AOS8/Central session required, so it can run right at page load.
+
+  const INPROGRESS_DISMISS_KEY = "aos8-10-migrator-inprogress-dismissed-count";
+
+  async function checkInProgress() {
+    try {
+      const rows = await api("GET", "/api/tracking/in-progress", {});
+      const banner = document.getElementById("inProgressBanner");
+      if (!rows.length) { banner.hidden = true; return; }
+      // Only re-show if the count changed since last dismissal, so a user who
+      // dismissed it isn't nagged again every page load for the same APs.
+      let dismissedAt = null;
+      try { dismissedAt = Number(sessionStorage.getItem(INPROGRESS_DISMISS_KEY)); } catch (err) { /* ignore */ }
+      if (dismissedAt === rows.length) { banner.hidden = true; return; }
+      document.getElementById("inProgressBannerText").textContent =
+        `${rows.length} AP(s) have an in-progress migration from a previous session. `;
+      banner.hidden = false;
+    } catch (err) { /* best-effort -- proxy agent may not be reachable yet, that's fine */ }
+  }
+
+  document.getElementById("inProgressBannerLink").addEventListener("click", (e) => {
+    e.preventDefault();
+    document.querySelector('.step[data-tab="tracking"]').click();
+  });
+
+  document.getElementById("btnDismissInProgressBanner").addEventListener("click", () => {
+    const banner = document.getElementById("inProgressBanner");
+    banner.hidden = true;
+    try {
+      const text = document.getElementById("inProgressBannerText").textContent;
+      const count = Number((text.match(/\d+/) || [0])[0]);
+      sessionStorage.setItem(INPROGRESS_DISMISS_KEY, String(count));
+    } catch (err) { /* ignore */ }
+  });
+
   // -------------------------------------------------------------- init
 
   restoreSession();
@@ -868,4 +908,5 @@
   wirePersistedFields();
   armTrackingAutoRefresh(); // in case a saved auto-refresh interval was just restored
   pollDebugLog();
+  checkInProgress();
 })();

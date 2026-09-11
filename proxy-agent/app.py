@@ -589,6 +589,15 @@ def tracking_list():
     return jsonify(store.list_aps(state=request.args.get("state"), ap_group=request.args.get("ap_group")))
 
 
+@app.get("/api/tracking/in-progress")
+def tracking_in_progress():
+    """APs left in a "converting" or "pre_validated" state -- an action was started
+    but never confirmed finished, most likely because the proxy agent restarted (or
+    a browser tab was closed) mid-migration. The GUI surfaces this as a banner on
+    connect so it's not just forgotten; it doesn't resume anything automatically."""
+    return jsonify(store.list_in_progress())
+
+
 @app.post("/api/tracking/import")
 def tracking_import():
     """Bulk-import AP rows from a CSV parsed client-side (docs/assets/app.js) -- lets

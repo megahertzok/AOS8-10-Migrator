@@ -154,6 +154,21 @@ def list_aps(state=None, ap_group=None):
     return [dict(row) for row in rows]
 
 
+# States that mean "an action was started but never confirmed finished" -- worth
+# surfacing to the GUI after a proxy agent restart (or a browser refresh that lost
+# in-memory session state), since these are exactly the APs a user might otherwise
+# forget mid-migration. "discovered" is a normal resting state, not included here.
+IN_PROGRESS_STATES = ("converting", "pre_validated")
+
+
+def list_in_progress():
+    conn = _connect()
+    placeholders = ",".join("?" for _ in IN_PROGRESS_STATES)
+    rows = conn.execute(f"SELECT * FROM aps WHERE state IN ({placeholders}) ORDER BY last_updated DESC", IN_PROGRESS_STATES).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
 def get_ap(mac):
     conn = _connect()
     row = conn.execute("SELECT * FROM aps WHERE mac = ?", (mac,)).fetchone()
