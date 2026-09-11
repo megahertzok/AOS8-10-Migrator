@@ -589,6 +589,16 @@ def tracking_list():
     return jsonify(store.list_aps(state=request.args.get("state"), ap_group=request.args.get("ap_group")))
 
 
+@app.get("/api/tracking/audit-log")
+def tracking_audit_log():
+    """Append-only history of every state change any tracked AP has gone through --
+    separate from /api/tracking, which only reflects each AP's *current* state.
+    Written automatically by migration_store.upsert_ap() whenever a state actually
+    changes, for compliance/change-management recordkeeping independent of the live
+    tracking dashboard."""
+    return jsonify(store.list_audit_log(mac=request.args.get("mac")))
+
+
 @app.post("/api/tracking/import")
 def tracking_import():
     """Bulk-import AP rows from a CSV parsed client-side (docs/assets/app.js) -- lets

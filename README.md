@@ -121,6 +121,17 @@ GUI) wipes all of it and reloads the page. This is separate from — and doesn't
 touch — actual migration history, which lives in the proxy agent's tracking
 database (`proxy-agent/migration_state.db`), not the browser.
 
+### Audit log
+
+Separate from the Tracking dashboard's live-state CSV export (a snapshot of where
+each AP is *right now*), the tracking database also keeps an append-only record of
+every state change any tracked AP has ever gone through — written automatically
+whenever `migration_store.upsert_ap()` sees a state actually change, so nothing has
+to remember to log it at each of the many call sites that touch AP state across
+`app.py`. **"Export audit log (CSV)"** on the Tracking dashboard downloads the full
+history (timestamp, MAC, name, state before/after, notes) for compliance or
+change-management recordkeeping independent of current state.
+
 ## The migration workflow, step by step
 
 The GUI's left sidebar is a numbered, vertical checklist — follow it top to bottom.

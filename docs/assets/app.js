@@ -706,6 +706,18 @@
     downloadCSV("migration-tracking.csv", toCSV(lastTrackingRows, AP_CSV_COLUMNS.concat(["last_updated"])));
   });
 
+  const AUDIT_LOG_CSV_COLUMNS = ["timestamp", "mac", "name", "state_before", "state_after", "notes"];
+
+  document.getElementById("btnExportAuditLogCsv").addEventListener("click", async () => {
+    try {
+      const rows = await api("GET", "/api/tracking/audit-log", {});
+      const formatted = rows.map((r) => ({ ...r, timestamp: formatDate(r.timestamp) }));
+      downloadCSV("migration-audit-log.csv", toCSV(formatted, AUDIT_LOG_CSV_COLUMNS));
+    } catch (err) {
+      alert(`Audit log export failed: ${err.message}`);
+    }
+  });
+
   // -------------------------------------------------------------- sites
 
   function renderUnassignedTable(rows) {
