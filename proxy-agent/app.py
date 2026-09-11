@@ -6,6 +6,7 @@ by default). Nothing here is reachable from the public internet unless you
 explicitly change `proxy_agent.host` to 0.0.0.0 in config.yaml.
 """
 
+import re
 import uuid
 from pathlib import Path
 
@@ -25,6 +26,7 @@ DOCS_DIR = BASE_DIR.parent / "docs"
 CONFIG_PATH = BASE_DIR / "config.yaml"
 EXAMPLE_CONFIG_PATH = BASE_DIR / "config.example.yaml"
 ENDPOINTS_PATH = BASE_DIR / "endpoints.yaml"
+AP_MODEL_SUPPORT_PATH = BASE_DIR / "ap_model_support.yaml"
 
 
 def load_yaml(path):
@@ -34,6 +36,7 @@ def load_yaml(path):
 
 config = load_yaml(CONFIG_PATH if CONFIG_PATH.exists() else EXAMPLE_CONFIG_PATH)
 endpoints = load_yaml(ENDPOINTS_PATH)
+ap_model_support = load_yaml(AP_MODEL_SUPPORT_PATH)
 
 # The proxy agent also serves the GUI itself (the same docs/ folder GitHub Pages
 # hosts), so "Open GUI" always works -- including for purely local use with no
@@ -66,10 +69,17 @@ aos8_topology = {}
 
 def _first(d, *keys, default=None):
     """Return the first present key's value -- AOS8 showcommand JSON key casing/naming
-    varies by firmware, so field lookups try a few known variants rather than one guess."""
+    varies by firmware, so field lookups try a few known variants rather than one guess.
+    Tries each variant as an exact match first, then falls back to a case-insensitive
+    match against every key actually present -- firmware versions have been observed to
+    differ only in casing (e.g. "Name" vs "name") for otherwise-identical fields."""
     for key in keys:
         if key in d:
             return d[key]
+    lowered = {str(k).lower(): v for k, v in d.items()}
+    for key in keys:
+        if key.lower() in lowered:
+            return lowered[key.lower()]
     return default
 
 
@@ -84,6 +94,55 @@ def _extract_rows(data, *container_keys):
         if isinstance(value, list) and value and isinstance(value[0], dict):
             return value
     return []
+
+
+def _model_support(model):
+    """Best-effort, deliberately incomplete AP hardware-compatibility check against
+    ap_model_support.yaml. Returns (status, reason): status is "unsupported",
+    "caveat", or "unknown" (no match either way, or no model captured at all --
+    always a warning to verify manually, never a silent pass)."""
+    if not model:
+        return "unknown", "AP model wasn't captured from the controller -- verify manually."
+    for entry in ap_model_support.get("unsupported", []):
+        if re.search(entry["match"], model, re.IGNORECASE):
+            return "unsupported", entry["reason"]
+    for entry in ap_model_support.get("caveats", []):
+        if re.search(entry["match"], model, re.IGNORECASE):
+            return "caveat", entry["reason"]
+    return "unknown", "Not in our best-known compatibility list (deliberately incomplete) -- verify manually."
+
+
+def _annotate_model_support(rows):
+    for row in rows:
+        status, reason = _model_support(row.get("model"))
+        row["model_support"] = status
+        row["model_support_reason"] = reason
+    return rows
+
+
+# `ap convert` was introduced in ArubaOS 8.6.0.0 -- on older firmware the command
+# doesn't exist and conversion attempts fail confusingly. See README "Known gaps".
+MIN_AP_CONVERT_VERSION = (8, 6, 0)
+
+
+def _parse_version(version_str):
+    """Best-effort major.minor.patch extraction from a `show switches` "Version"
+    string (e.g. "8.10.0.5_88245" or "8.6.0.4"). Returns None if it doesn't parse,
+    which callers treat as "unknown", not "fails the check"."""
+    if not version_str:
+        return None
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", str(version_str))
+    if not match:
+        return None
+    return tuple(int(g) for g in match.groups())
+
+
+def _meets_min_firmware(version_str, minimum=MIN_AP_CONVERT_VERSION):
+    """True/False if the version parses, else None ("unknown, verify manually")."""
+    parsed = _parse_version(version_str)
+    if parsed is None:
+        return None
+    return parsed >= minimum
 
 
 def error_response(exc, status=400):
@@ -168,6 +227,56 @@ def aos8_discover():
     return jsonify(client.discover(candidates))
 
 
+@app.get("/api/aos8/show")
+def aos8_show_raw():
+    """Run an arbitrary `show ...` command through the documented showcommand
+    passthrough and return the raw JSON, unparsed. This is a diagnostic tool, not
+    part of the migration workflow -- it exists so anyone with real controller access
+    can self-serve the verification this tool's "Known gaps" section asks for (real
+    REST object names via /api/aos8/discover, and real showcommand field names/JSON
+    shapes) directly from the GUI, without needing curl or a separate REST client.
+    Restricted to strings starting with "show " -- showcommand itself is read-only
+    by AOS8's own design, but this is defense in depth against the field being misused
+    for something other than its intended diagnostic purpose."""
+    session_id = request.args.get("session_id")
+    command = (request.args.get("command") or "").strip()
+    if not command.lower().startswith("show "):
+        return error_response("command must start with 'show ' -- this tool only runs read-only show commands")
+    try:
+        client = _aos8_client(session_id)
+    except KeyError as exc:
+        return error_response(exc, 401)
+    config_path = request.args.get("config_path") or "/mm"
+    try:
+        data = client.show_command(command, config_path=config_path)
+    except Exception as exc:  # noqa: BLE001
+        return error_response(exc, 502)
+    return jsonify(data)
+
+
+@app.get("/api/aos8/country-code")
+def aos8_country_code():
+    """Best-effort lookup of the controller's configured regulatory domain / country
+    code, for the pre-flight warning that `ap convert` permanently writes this onto
+    every AP it converts. Non-fatal on failure -- the GUI still shows a static warning
+    even if this specific lookup doesn't work against a given firmware/profile name."""
+    session_id = request.args.get("session_id")
+    try:
+        client = _aos8_client(session_id)
+    except KeyError as exc:
+        return error_response(exc, 401)
+    config_path = request.args.get("config_path", "/mm")
+    try:
+        data = client.show_command(endpoints["aos8"]["show_regulatory_domain_command"], config_path=config_path)
+    except Exception as exc:  # noqa: BLE001 -- best-effort, never blocks the pre-flight step
+        return jsonify({"country_code": None, "error": str(exc)})
+
+    rows = _extract_rows(data, "Regulatory Domain Profile", "AP Regulatory Domain Profile")
+    row = rows[0] if rows else data
+    country_code = _first(row, "Country Code", "country-code", "Country")
+    return jsonify({"country_code": country_code, "raw": data if not country_code else None})
+
+
 @app.get("/api/aos8/topology")
 def aos8_topology_view():
     """Discover every Mobility Controller (MD) the Mobility Master manages, via
@@ -188,13 +297,17 @@ def aos8_topology_view():
     for row in rows:
         switches.append(
             {
-                "name": _first(row, "Name"),
-                "ip": _first(row, "IP Address", "IPAddress"),
-                "location": _first(row, "Location"),
-                "type": _first(row, "Type"),
-                "status": _first(row, "Status"),
-                "model": _first(row, "Model"),
-                "version": _first(row, "Version"),
+                "name": _first(row, "Name", "Switch Name", "Device Name"),
+                "ip": _first(row, "IP Address", "IPAddress", "IP"),
+                "location": _first(row, "Location", "Config Path", "Path"),
+                "type": _first(row, "Type", "Device Type", "Switch Type"),
+                "status": _first(row, "Status", "Configuration State", "State"),
+                "model": _first(row, "Model", "Device Model"),
+                "version": _first(row, "Version", "Firmware Version", "Software Version"),
+                # True/False if we could parse the version and compare it to the
+                # 8.6.0.0 minimum `ap convert` requires; None if the version string
+                # didn't parse -- the GUI treats that as "verify manually", not a pass.
+                "firmware_ok": _meets_min_firmware(_first(row, "Version", "Firmware Version", "Software Version")),
             }
         )
     aos8_topology[session_id] = switches
@@ -228,28 +341,45 @@ def aos8_aps():
     # _first()/_extract_rows() try known variants. Adjust once confirmed against a
     # real controller (see README "Mobility Master / Mobility Controller hierarchy").
     rows = _extract_rows(data, "AP Database", "APs")
+    skipped_no_mac = 0
     for row in rows:
-        mac = _first(row, "Wired MAC Address", "AP Wired MAC Address", "MAC Address")
+        mac = _first(row, "Wired MAC Address", "AP Wired MAC Address", "MAC Address", "Wired Mac Address", "AP MAC")
         if not mac:
+            skipped_no_mac += 1
             continue
-        switch_ip = _first(row, "Switch IP", "Switch IP Address")
+        switch_ip = _first(row, "Switch IP", "Switch IP Address", "Switch IP Addr")
         md_config_path, md_name = _md_config_path_for_ip(session_id, switch_ip) if switch_ip else ("/md", None)
         store.upsert_ap(
             mac,
             name=_first(row, "Name", "AP Name"),
-            ap_group=_first(row, "Group", "AP Group"),
+            ap_group=_first(row, "Group", "AP Group", "Group Name"),
             md_ip=switch_ip,
             md_name=md_name,
             md_config_path=md_config_path,
-            serial=_first(row, "AP Serial #", "Serial #", "Serial"),
+            serial=_first(row, "AP Serial #", "Serial #", "Serial", "Serial Number"),
             # The AP's OWN management IP -- distinct from switch_ip (its anchor MD's IP).
             # This is what rollback SSHes into. Note it can go stale: once an AP converts
             # to AOS10 it gets a new DHCP lease, so this pre-migration value may no longer
             # be current -- the rollback flow re-checks Central's inventory first when a
             # Central session is available (see docs/assets/app.js rollback flow).
-            ap_ip=_first(row, "IP Address", "AP IP Address"),
+            ap_ip=_first(row, "IP Address", "AP IP Address", "IP Addr"),
+            # UNVERIFIED exact key -- used only for the best-effort hardware
+            # compatibility check (see ap_model_support.yaml / _model_support()).
+            model=_first(row, "AP Type", "Model Name", "Model"),
         )
-    return jsonify({"raw": data, "tracked": store.list_aps()})
+    if skipped_no_mac:
+        # This is the single most likely symptom of a wrong field-name guess for this
+        # firmware -- surface it loudly instead of silently returning a short list.
+        # Inspect the raw showcommand response (the "raw" key in this endpoint's own
+        # JSON response, or GET /api/aos8/show?command=show+ap+database+long) to find
+        # the actual key name and fix the guesses in app.py's aos8_aps().
+        debug_log.event(
+            "AP Inventory",
+            f"{skipped_no_mac} row(s) from {endpoints['aos8']['show_ap_database_command']} had no recognized MAC "
+            "field and were skipped -- the field-name guess likely doesn't match this firmware.",
+            level="warning",
+        )
+    return jsonify({"raw": data, "tracked": _annotate_model_support(store.list_aps())})
 
 
 def _convert_action(action_key, session_id, groups, build_payload):
@@ -344,6 +474,23 @@ def convert_cancel():
         for mac in group.get("ap_names", []):
             store.set_state(mac, "rolled_back", notes="Cancelled in-flight conversion")
     return _convert_action("ap_convert_cancel", body.get("session_id"), groups, lambda ap_names: {})
+
+
+@app.post("/api/aos8/convert/clear-all")
+def convert_clear_all():
+    """Clear any pending `ap convert` job on the given controller(s). A stale job left
+    outstanding (e.g. the operator navigated away instead of clicking Execute/Cancel)
+    is a real hazard: an HPE Airheads report describes a leftover `active all-aps` job
+    silently auto-converting newly-joining APs. This tool never issues `all-aps`
+    (Execute always uses specific-aps), but a leftover `add`/`pre-validate` job can
+    still linger -- this gives operators an explicit way to clear it rather than
+    relying on it timing out or being forgotten. This is a controller-wide action
+    (ap_names are irrelevant to `ap convert clear-all`), so it only needs config_paths,
+    not an AP selection."""
+    body = request.get_json(force=True)
+    config_paths = body.get("config_paths") or ["/md"]
+    groups = [{"config_path": cp, "ap_names": []} for cp in config_paths]
+    return _convert_action("ap_convert_clear_all", body.get("session_id"), groups, lambda ap_names: {})
 
 
 @app.get("/api/aos8/convert/status")
@@ -586,7 +733,8 @@ def central_verify():
 
 @app.get("/api/tracking")
 def tracking_list():
-    return jsonify(store.list_aps(state=request.args.get("state"), ap_group=request.args.get("ap_group")))
+    rows = store.list_aps(state=request.args.get("state"), ap_group=request.args.get("ap_group"))
+    return jsonify(_annotate_model_support(rows))
 
 
 @app.post("/api/tracking/import")

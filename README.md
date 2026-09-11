@@ -181,6 +181,19 @@ If topology hasn't been loaded yet, AP rows fall back to `config_path: "/md"`, w
 
 Before executing a conversion, the Convert & Rollback tab surfaces:
 
+- **AP hardware compatibility** — not every AP model supports `ap convert` (older
+  AP-200 series can't run InstantOS past 6.5; some AP-325 units lack enough memory).
+  "Check AP model compatibility" cross-references your selection against
+  [`proxy-agent/ap_model_support.yaml`](proxy-agent/ap_model_support.yaml), a
+  **best-known, deliberately incomplete** list seeded from community reports — a model
+  that isn't in it is reported as "unknown, verify manually," never silently assumed
+  safe. The Inventory table's Model column shows this for every tracked AP, not just
+  the current selection.
+- **Controller firmware version** — `ap convert` was introduced in ArubaOS 8.6.0.0;
+  on older firmware the command doesn't exist and conversion fails confusingly. "Check
+  controller firmware" cross-references your selected APs' anchor controller(s) against
+  the version reported by `show switches` (also flagged in the Topology table on the
+  Inventory tab) and warns if any are below the minimum.
 - **Licensing and group assignment** — `ap convert pre-validate` itself checks that
   each AP is licensed on Central and reports which Central group it will land in.
   This *is* the licensing check; there's no separate Central API call for it. Run it
@@ -196,6 +209,22 @@ Before executing a conversion, the Convert & Rollback tab surfaces:
   mesh settings stay on the AP but are **not** migrated into Central, and a mismatch
   can make the AP flap and auto-restore. If your APs use any of these, configure the
   equivalent settings in the target Central AP group *before* converting.
+- **Country code is permanent** — `ap convert` writes the controller's configured
+  regulatory domain (country code) onto every AP it converts, and it **cannot be
+  changed afterward** without a factory reset; it also permanently ties FCC-locked
+  hardware to a US-only regulatory domain. The Pre-flight step shows a best-effort
+  detected country code (via a `show ap regulatory-domain-profile` lookup — UNVERIFIED
+  exact command, see `endpoints.yaml`) and requires you to check an acknowledgement box
+  before Execute unlocks. If you're converting APs destined for a Central site in a
+  *different* country than this controller, stop and re-home them from a controller in
+  the correct region first — there is no supported way to fix this after the fact.
+  ([source](https://airheads.hpe.com/discussion/ap-convert-command-in-86),
+  [source](https://blog.theitrebel.com/2020/04/28/two-simple-words/))
+- **Cluster auto-join** — always shown: a converted AP can automatically join an
+  existing Instant/AOS10 cluster within radio range and inherit *that* cluster's
+  configuration, which can look like a failed migration when the AP actually just
+  landed somewhere unexpected. If a converted AP doesn't behave as expected, check for
+  other clusters nearby before assuming the conversion itself failed. ([source](https://airheads.hpe.com/discussion/ap-convert-command-in-86))
 
 ## Post-migration verification
 
@@ -206,6 +235,16 @@ the intended target (once assigned). It doesn't block anything — it's a checkl
 a gate — so you can also cross-check the older way HPE's own guide suggests: look at
 `show ap lldp neighbors` from the AP's switch port; a still-AOS8 AP shows as a CAP,
 a converted one shows as an IAP.
+
+## Clearing a stale conversion job
+
+This tool never uses `ap convert active all-aps` — Execute always targets
+`specific-aps` — specifically because a community report on HPE Airheads describes a
+leftover `all-aps` job silently converting newly-joining APs that were never intended
+for migration. Still, a job from `add`/`pre-validate` can be left outstanding on a
+controller if you navigate away instead of finishing or cancelling it. The Execute
+step has a **"Clear pending job"** button (`ap convert clear-all`) for exactly that —
+it's controller-wide, not limited to your current AP selection, so use it deliberately.
 
 ## Rollback — single AP, group, or site
 
@@ -272,11 +311,19 @@ against HPE's own docs. What's still `UNVERIFIED` in
 [`proxy-agent/endpoints.yaml`](proxy-agent/endpoints.yaml) is the exact **REST object
 name** each of those write actions maps to (no public doc confirms them) and the exact
 JSON field names in showcommand responses (`app.py`'s `_first()`/`_extract_rows()`
-helpers try several likely variants). Before relying on this against a real controller:
+helpers try several likely variants, matched case-insensitively as a fallback since
+firmware versions have been observed to differ only in key casing). If the AP
+inventory silently comes back short, check the proxy agent's log — `aos8_aps()` logs a
+warning naming exactly how many rows it had to skip for lacking a recognized MAC
+field, so a wrong guess is loud, not silent. Before relying on this against a real
+controller:
 
 1. Connect to the MM/controller in the GUI.
-2. Hit `GET /api/aos8/discover` (probes the controller's own live API index at `/api`
-   after login) to find the real endpoint names.
+2. Open **Connect → Advanced: API diagnostics** and click **Discover API endpoints**
+   (probes the controller's own live API index at `/api` after login) to find the real
+   endpoint names, or run any `show ...` command directly with **Run a read-only show
+   command** to see the raw JSON shape a field-name guess needs to match. Both are
+   right there in the GUI now — no separate REST client needed.
 3. Correct `proxy-agent/endpoints.yaml` to match, and adjust the field-name lists in
    `app.py` if the "Controller (MD)" column or AP serials don't populate correctly.
 
@@ -294,6 +341,14 @@ confirmed against real hardware.
 **Firmware pre-flight checks** (`proxy-agent/firmware_check.py`) confirm a server is
 *reachable*, never that the specific image file exists — AOS8 doesn't expose an API
 for that. Read each result's `detail`/`error` field, don't just trust `reachable: true`.
+
+**AP model compatibility** (`proxy-agent/ap_model_support.yaml`) is a best-known,
+deliberately incomplete list, not an official HPE support matrix — HPE doesn't publish
+one this tool could fetch and parse. It's seeded from two community sources (see the
+file itself); a model that matches neither its `unsupported` nor `caveats` list is
+reported as "unknown," not "supported." Also UNVERIFIED: the exact key AOS8 uses for
+an AP's model/type in `show ap database long` (`app.py`'s `aos8_aps()` tries "AP Type",
+"Model Name", "Model" — adjust if your controller doesn't populate the Model column).
 
 **Tray icon dependencies** (`pystray` + `Pillow`, for the menu-bar/system-tray icon):
 on macOS, `pystray`'s Objective-C bindings (`pyobjc-core`) fail to *compile* against
