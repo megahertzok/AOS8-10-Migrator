@@ -16,6 +16,7 @@ import yaml
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
+import ap_lock
 import debug_log
 import firmware_check
 import migration_store as store
@@ -404,25 +405,44 @@ def aos8_aps():
 def _convert_action(action_key, session_id, groups, build_payload):
     """Run a config-object POST once per (config_path, ap_names) group, since a batch of
     selected APs can legitimately span multiple MDs and each action has to land on the
-    AP's own anchor MD, not the Mobility Master."""
+    AP's own anchor MD, not the Mobility Master.
+
+    Locks every AP across every group for the duration of the whole batch (see
+    ap_lock.py) -- matters when the proxy agent is shared (config.yaml's
+    proxy_agent.host: 0.0.0.0) so two people can't both start an action against the
+    same AP without either knowing about the other. Locked upfront, atomically,
+    before any REST call runs, so a conflict is caught before the batch starts
+    rather than partway through it.
+    """
     try:
         client = _aos8_client(session_id)
     except KeyError as exc:
         return error_response(exc, 401)
-    results = []
-    for group in groups:
-        config_path = group.get("config_path") or "/md"
-        ap_names = group.get("ap_names", [])
-        try:
-            result = client.post_path(endpoints["aos8"][action_key], build_payload(ap_names), config_path=config_path)
-            results.append({"config_path": config_path, "ap_names": ap_names, "result": result})
-            debug_log.event(
-                "Convert", f"{action_key} @ {config_path} succeeded for {len(ap_names)} AP(s): {ap_names}", level="success"
-            )
-        except Exception as exc:  # noqa: BLE001
-            results.append({"config_path": config_path, "ap_names": ap_names, "error": str(exc)})
-            debug_log.event("Convert", f"{action_key} @ {config_path} FAILED for {ap_names}: {exc}", level="error")
-    return jsonify({"groups": results})
+
+    all_macs = [mac for group in groups for mac in group.get("ap_names", [])]
+    try:
+        lock = ap_lock.held_for(all_macs, holder=request.remote_addr or "unknown", action=action_key)
+        lock.__enter__()
+    except ap_lock.ApLockError as exc:
+        return error_response(exc, 409)
+
+    try:
+        results = []
+        for group in groups:
+            config_path = group.get("config_path") or "/md"
+            ap_names = group.get("ap_names", [])
+            try:
+                result = client.post_path(endpoints["aos8"][action_key], build_payload(ap_names), config_path=config_path)
+                results.append({"config_path": config_path, "ap_names": ap_names, "result": result})
+                debug_log.event(
+                    "Convert", f"{action_key} @ {config_path} succeeded for {len(ap_names)} AP(s): {ap_names}", level="success"
+                )
+            except Exception as exc:  # noqa: BLE001
+                results.append({"config_path": config_path, "ap_names": ap_names, "error": str(exc)})
+                debug_log.event("Convert", f"{action_key} @ {config_path} FAILED for {ap_names}: {exc}", level="error")
+        return jsonify({"groups": results})
+    finally:
+        lock.__exit__(None, None, None)
 
 
 def _groups_from_body(body):
@@ -671,32 +691,44 @@ def aos8_rollback_to_campus():
     if not all([ap_host, ap_username, ap_password, controller_address]):
         return error_response("ap_host, ap_username, ap_password, and controller_address are required")
 
-    precancel_result = None
-    aos8_session_id = body.get("aos8_session_id")
-    config_path = body.get("config_path")
-    if aos8_session_id and config_path:
-        try:
-            client = _aos8_client(aos8_session_id)
-            status = client.show_command(endpoints["aos8"]["ap_convert_status_command"], config_path=config_path)
-            status_rows = _extract_rows(status, "Convert Status", "AP Convert Status")
-            if any(str(_first(row, "Upgrade Status", "Status", default="")).lower() == "active" for row in status_rows):
-                precancel_result = client.post_path(endpoints["aos8"]["ap_convert_cancel"], {}, config_path=config_path)
-        except Exception as exc:  # noqa: BLE001 -- best-effort; still attempt the SSH revert
-            precancel_result = {"error": str(exc)}
+    # See ap_lock.py -- prevents two people on a shared proxy agent from both
+    # rolling back (or converting) the same AP without either knowing about the
+    # other. Locked for the whole precancel+SSH sequence below.
+    try:
+        lock = ap_lock.held_for([mac or ap_host], holder=request.remote_addr or "unknown", action="rollback")
+        lock.__enter__()
+    except ap_lock.ApLockError as exc:
+        return error_response(exc, 409)
 
     try:
-        result = ssh_client.revert_to_campus_ap(ap_host, ap_username, ap_password, controller_address)
-    except ssh_client.SSHCommandError as exc:
-        if mac:
-            store.set_state(mac, "failed", notes=f"Rollback SSH failed: {exc}")
-        notify_webhook("rollback_failed", f"AOS8→AOS10 migrator: rollback FAILED for {mac or ap_host} -> {controller_address}: {exc}")
-        return error_response(exc, 502)
+        precancel_result = None
+        aos8_session_id = body.get("aos8_session_id")
+        config_path = body.get("config_path")
+        if aos8_session_id and config_path:
+            try:
+                client = _aos8_client(aos8_session_id)
+                status = client.show_command(endpoints["aos8"]["ap_convert_status_command"], config_path=config_path)
+                status_rows = _extract_rows(status, "Convert Status", "AP Convert Status")
+                if any(str(_first(row, "Upgrade Status", "Status", default="")).lower() == "active" for row in status_rows):
+                    precancel_result = client.post_path(endpoints["aos8"]["ap_convert_cancel"], {}, config_path=config_path)
+            except Exception as exc:  # noqa: BLE001 -- best-effort; still attempt the SSH revert
+                precancel_result = {"error": str(exc)}
 
-    if mac:
-        store.set_state(mac, "rolled_back", notes=f"Reverted via SSH: convert-aos-ap cap {controller_address}")
-    debug_log.event("Rollback", f"{mac or ap_host}: reverted to Campus AP via {ap_host} -> {controller_address}", level="success")
-    notify_webhook("rollback_completed", f"AOS8→AOS10 migrator: {mac or ap_host} reverted to Campus AP via {ap_host} -> {controller_address}")
-    return jsonify({"ssh_result": result, "precancel": precancel_result})
+        try:
+            result = ssh_client.revert_to_campus_ap(ap_host, ap_username, ap_password, controller_address)
+        except ssh_client.SSHCommandError as exc:
+            if mac:
+                store.set_state(mac, "failed", notes=f"Rollback SSH failed: {exc}")
+            notify_webhook("rollback_failed", f"AOS8→AOS10 migrator: rollback FAILED for {mac or ap_host} -> {controller_address}: {exc}")
+            return error_response(exc, 502)
+
+        if mac:
+            store.set_state(mac, "rolled_back", notes=f"Reverted via SSH: convert-aos-ap cap {controller_address}")
+        debug_log.event("Rollback", f"{mac or ap_host}: reverted to Campus AP via {ap_host} -> {controller_address}", level="success")
+        notify_webhook("rollback_completed", f"AOS8→AOS10 migrator: {mac or ap_host} reverted to Campus AP via {ap_host} -> {controller_address}")
+        return jsonify({"ssh_result": result, "precancel": precancel_result})
+    finally:
+        lock.__exit__(None, None, None)
 
 
 # ---------------------------------------------------------------------------
