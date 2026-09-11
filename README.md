@@ -163,8 +163,14 @@ FAQ](https://arubanetworking.hpe.com/techdocs/Archived/central/2.5.5/content/faq
 
 Access tokens expire after **2 hours**; the refresh token is valid for **14 days** and
 lets the proxy agent refresh automatically without you regenerating anything by hand —
-worth filling in even though the GUI marks it optional. These same steps are also
-shown inline in the GUI itself (Connect step → "How do I get these values?").
+worth filling in even though the GUI marks it optional. The refresh happens
+reactively (`central_client.py`'s `_request()` catches a 401, refreshes, and retries
+once) rather than on a timer, which is simpler and self-correcting; a successful
+refresh is logged as an always-on event (visible in the live log viewer, not just
+Debug mode). Once the *refresh* token itself expires — 14 days — you'll get a clear
+error telling you to generate a new one in Central and reconnect, instead of a raw
+HTTP error. These same steps are also shown inline in the GUI itself (Connect step →
+"How do I get these values?").
 
 ## Mobility Conductor / Mobility Device hierarchy
 
