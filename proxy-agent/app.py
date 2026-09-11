@@ -428,6 +428,23 @@ def convert_cancel():
     return _convert_action("ap_convert_cancel", body.get("session_id"), groups, lambda ap_names: {})
 
 
+@app.post("/api/aos8/convert/clear-all")
+def convert_clear_all():
+    """Clear any pending `ap convert` job on the given controller(s). A stale job left
+    outstanding (e.g. the operator navigated away instead of clicking Execute/Cancel)
+    is a real hazard: an HPE Airheads report describes a leftover `active all-aps` job
+    silently auto-converting newly-joining APs. This tool never issues `all-aps`
+    (Execute always uses specific-aps), but a leftover `add`/`pre-validate` job can
+    still linger -- this gives operators an explicit way to clear it rather than
+    relying on it timing out or being forgotten. This is a controller-wide action
+    (ap_names are irrelevant to `ap convert clear-all`), so it only needs config_paths,
+    not an AP selection."""
+    body = request.get_json(force=True)
+    config_paths = body.get("config_paths") or ["/md"]
+    groups = [{"config_path": cp, "ap_names": []} for cp in config_paths]
+    return _convert_action("ap_convert_clear_all", body.get("session_id"), groups, lambda ap_names: {})
+
+
 @app.get("/api/aos8/convert/status")
 def convert_status():
     session_id = request.args.get("session_id")
