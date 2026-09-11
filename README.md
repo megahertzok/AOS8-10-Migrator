@@ -61,7 +61,13 @@ pre-flight validation, batch conversion, post-migration verification, scoped rol
 
 To let a team share one proxy agent instance, edit `proxy-agent/config.yaml`
 (copied from `config.example.yaml` on first run) and set `proxy_agent.host: 0.0.0.0`,
-then point everyone's GUI at `http://<that-machine's-ip>:8765`.
+then point everyone's GUI at `http://<that-machine's-ip>:8765`. In shared mode, the
+proxy agent locks each AP for the duration of any conversion/rollback action against
+it (`proxy-agent/ap_lock.py`) — if a second person tries to act on an AP someone
+else already has in flight, they get a clear "already has an action in progress"
+error (HTTP 409) instead of the two actions racing against the same hardware. A
+stale lock (the request that held it crashed or was killed) is automatically
+reclaimed after 15 minutes.
 
 ### Debug console
 
