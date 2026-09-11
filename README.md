@@ -275,8 +275,11 @@ JSON field names in showcommand responses (`app.py`'s `_first()`/`_extract_rows(
 helpers try several likely variants). Before relying on this against a real controller:
 
 1. Connect to the MM/controller in the GUI.
-2. Hit `GET /api/aos8/discover` (probes the controller's own live API index at `/api`
-   after login) to find the real endpoint names.
+2. Open **Connect → Advanced: API diagnostics** and click **Discover API endpoints**
+   (probes the controller's own live API index at `/api` after login) to find the real
+   endpoint names, or run any `show ...` command directly with **Run a read-only show
+   command** to see the raw JSON shape a field-name guess needs to match. Both are
+   right there in the GUI now — no separate REST client needed.
 3. Correct `proxy-agent/endpoints.yaml` to match, and adjust the field-name lists in
    `app.py` if the "Controller (MD)" column or AP serials don't populate correctly.
 
