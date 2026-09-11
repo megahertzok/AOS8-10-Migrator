@@ -8,14 +8,38 @@ API, so this talks SSH directly to the AP's management IP instead.
 """
 
 import time
+from pathlib import Path
 
 import paramiko
 
 import debug_log
 
+# Trust-on-first-use host key store, local to this proxy agent install (never
+# committed -- see .gitignore). APs are rarely pre-enrolled in anyone's system
+# known_hosts, so the first SSH to a given AP IP trusts and pins whatever key it
+# presents; a *later* connection to that same IP with a *different* key -- AP
+# hardware swapped without updating this file, or an actual on-path attacker --
+# raises paramiko.BadHostKeyException instead of silently trusting it again,
+# which is what plain AutoAddPolicy does on every single connection.
+KNOWN_HOSTS_PATH = Path(__file__).parent / "ap_known_hosts"
+
 
 class SSHCommandError(Exception):
     pass
+
+
+class _TrustOnFirstUsePolicy(paramiko.MissingHostKeyPolicy):
+    """Paramiko only calls this for a host with no entry in the loaded known-hosts
+    file at all -- if the host IS known but presents a different key, paramiko
+    raises BadHostKeyException on its own before this is ever reached. So this
+    only needs to handle "never seen this host before": pin the key and persist
+    it, the same first-touch trust AutoAddPolicy gives, but durable across runs
+    so a later key change on the same host is actually detected."""
+
+    def missing_host_key(self, client, hostname, key):
+        debug_log.log("SSH", f"{hostname}: no pinned host key yet -- trusting and saving this one (first connection)")
+        client.get_host_keys().add(hostname, key.get_name(), key)
+        client.save_host_keys(str(KNOWN_HOSTS_PATH))
 
 
 def _run_via_shell(client, command, host, timeout, read_delay=2.0):
@@ -47,9 +71,9 @@ def _run_via_shell(client, command, host, timeout, read_delay=2.0):
 def run_ap_command(host, username, password, command, port=22, timeout=15, allow_shell_fallback=True):
     """Open an SSH session to an AP, run one command, and return its output.
 
-    Uses AutoAddPolicy for host keys -- APs in the field are rarely pre-enrolled in a
-    known_hosts file, and this tool already treats the proxy agent's local network as
-    trusted (it's the same trust boundary as reaching the AP's management IP at all).
+    Host keys are trust-on-first-use (see _TrustOnFirstUsePolicy above): the first
+    SSH to a given AP IP pins its key to KNOWN_HOSTS_PATH, and a later connection to
+    the same IP with a different key is rejected rather than silently re-trusted.
 
     Tries a plain exec_command first. If that raises an SSHException (channel-related
     failures, including a PTY being required) or comes back with exit_status -1 --
@@ -64,7 +88,9 @@ def run_ap_command(host, username, password, command, port=22, timeout=15, allow
     debug_log.log("SSH", f"Connecting to {host}:{port} as {username} (password=***)")
     debug_log.log("SSH", f"{host}: running command: {command}")
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    if KNOWN_HOSTS_PATH.exists():
+        client.load_host_keys(str(KNOWN_HOSTS_PATH))
+    client.set_missing_host_key_policy(_TrustOnFirstUsePolicy())
     try:
         client.connect(
             host,
