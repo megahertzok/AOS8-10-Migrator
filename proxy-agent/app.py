@@ -377,11 +377,25 @@ def aos8_firmware_check():
             client = _aos8_client(session_id)
         except KeyError as exc:
             return error_response(exc, 401)
-        try:
-            data = client.show_command(endpoints["aos8"]["show_storage_command"], config_path=config_path)
-        except Exception as exc:  # noqa: BLE001
-            return error_response(exc, 502)
-        return jsonify({"reachable": True, "detail": "Controller responded to a storage listing -- review it below to confirm the image filename is present", "raw": data})
+        # UNVERIFIED which of these commands this firmware actually supports -- tries
+        # each in order (see endpoints.yaml) and uses whichever one the controller
+        # accepts, rather than betting on a single guess.
+        candidates = endpoints["aos8"].get("show_storage_commands") or [endpoints["aos8"].get("show_storage_command", "show storage")]
+        errors = []
+        for command in candidates:
+            try:
+                data = client.show_command(command, config_path=config_path)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{command}: {exc}")
+                continue
+            return jsonify(
+                {
+                    "reachable": True,
+                    "detail": f'Controller responded to "{command}" -- review it below to confirm the image filename is present',
+                    "raw": data,
+                }
+            )
+        return jsonify({"reachable": False, "error": f"None of the candidate storage commands worked: {'; '.join(errors)}"})
 
     result = firmware_check.check_firmware_source(
         server_type,
