@@ -6,9 +6,11 @@ by default). Nothing here is reachable from the public internet unless you
 explicitly change `proxy_agent.host` to 0.0.0.0 in config.yaml.
 """
 
+import time
 import uuid
 from pathlib import Path
 
+import requests
 import yaml
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -84,6 +86,23 @@ def _extract_rows(data, *container_keys):
         if isinstance(value, list) and value and isinstance(value[0], dict):
             return value
     return []
+
+
+def notify_webhook(event, summary, timeout=5):
+    """Best-effort POST to the configured webhook (config.yaml notifications.webhook_url)
+    -- Slack's incoming-webhook format ({"text": ...}) works directly since it's the
+    most common target, and any other endpoint accepting a JSON POST also gets the
+    full structured payload. Never raises -- a broken/misconfigured webhook must not
+    break the action that triggered it. See config.example.yaml for what "event"
+    actually means here (batch *submission*, not confirmed per-AP completion)."""
+    webhook_url = config.get("notifications", {}).get("webhook_url")
+    if not webhook_url:
+        return
+    try:
+        requests.post(webhook_url, json={"text": summary, "event": event, "timestamp": time.time()}, timeout=timeout)
+        debug_log.event("Notification", f"Webhook sent for {event}", level="success")
+    except Exception as exc:  # noqa: BLE001 -- notification failures must never break the caller
+        debug_log.event("Notification", f"Webhook failed for {event}: {exc}", level="error")
 
 
 def error_response(exc, status=400):
@@ -333,7 +352,18 @@ def convert_execute():
             }
         return payload
 
-    return _convert_action("ap_convert_active", body.get("session_id"), groups, build_payload)
+    response = _convert_action("ap_convert_active", body.get("session_id"), groups, build_payload)
+    payload = response.get_json() if hasattr(response, "get_json") else None
+    if payload and "groups" in payload:
+        total_aps = sum(len(g.get("ap_names", [])) for g in payload["groups"])
+        failed = [g for g in payload["groups"] if g.get("error")]
+        summary = (
+            f"AOS8→AOS10 migrator: conversion submitted for {total_aps} AP(s) across {len(payload['groups'])} controller(s)"
+            + (f" -- {len(failed)} group(s) FAILED to submit" if failed else " -- all groups submitted successfully")
+            + ". This confirms the batch was *submitted*, not that every AP has finished converting -- check Central or the Verify step for that."
+        )
+        notify_webhook("convert_execute_submitted", summary)
+    return response
 
 
 @app.post("/api/aos8/convert/cancel")
@@ -431,11 +461,13 @@ def aos8_rollback_to_campus():
     except ssh_client.SSHCommandError as exc:
         if mac:
             store.set_state(mac, "failed", notes=f"Rollback SSH failed: {exc}")
+        notify_webhook("rollback_failed", f"AOS8→AOS10 migrator: rollback FAILED for {mac or ap_host} -> {controller_address}: {exc}")
         return error_response(exc, 502)
 
     if mac:
         store.set_state(mac, "rolled_back", notes=f"Reverted via SSH: convert-aos-ap cap {controller_address}")
     debug_log.event("Rollback", f"{mac or ap_host}: reverted to Campus AP via {ap_host} -> {controller_address}", level="success")
+    notify_webhook("rollback_completed", f"AOS8→AOS10 migrator: {mac or ap_host} reverted to Campus AP via {ap_host} -> {controller_address}")
     return jsonify({"ssh_result": result, "precancel": precancel_result})
 
 
