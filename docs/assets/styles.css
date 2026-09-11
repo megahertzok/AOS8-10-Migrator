@@ -91,6 +91,11 @@ body {
 
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-mark { flex-shrink: 0; }
+.brand-mark-cursor { animation: brand-cursor-blink 1.4s step-end infinite; }
+@keyframes brand-cursor-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark-cursor { animation: none; }
+}
 .brand-text { font-size: 16px; font-weight: 600; color: var(--text-heading); }
 .brand-sub { color: var(--text-weak); font-weight: 400; }
 
