@@ -46,22 +46,74 @@ class CentralClient:
     def _headers(self):
         return {"Authorization": f"Bearer {self.access_token}"}
 
-    def _request(self, method, path, retry=True, **kwargs):
+    def _request(self, method, path, retry=True, retries_429=3, **kwargs):
+        """A 429 means Central's own rate limiter, not a bug -- back off and retry a
+        bounded number of times (Retry-After header if Central sends one, else a
+        fixed 2s) rather than surfacing a spurious failure to the GUI mid-batch."""
         debug_log.log("Central REST", f"{method} {self.base_url}{path}  {debug_log.redact(kwargs)}")
         resp = requests.request(
             method, f"{self.base_url}{path}", headers=self._headers(), timeout=self.timeout, **kwargs
         )
         if resp.status_code == 401 and retry:
             self.refresh()
-            return self._request(method, path, retry=False, **kwargs)
+            return self._request(method, path, retry=False, retries_429=retries_429, **kwargs)
+        if resp.status_code == 429 and retries_429 > 0:
+            delay = float(resp.headers.get("Retry-After", 2))
+            debug_log.event(
+                "Central", f"Rate limited (429) on {method} {path} -- waiting {delay:.1f}s, {retries_429} retr{'y' if retries_429 == 1 else 'ies'} left",
+                level="warning",
+            )
+            time.sleep(delay)
+            return self._request(method, path, retry=retry, retries_429=retries_429 - 1, **kwargs)
         resp.raise_for_status()
         return resp.json() if resp.content else {}
 
+    def _get_paginated(self, path, params=None, limit=1000, max_pages=200):
+        """Page through a Central list endpoint using its offset/limit convention,
+        combining every page's rows into one response shaped like a single page.
+
+        The exact top-level key holding the row list (e.g. "sites", "devices") isn't
+        confirmed for every endpoint, so this finds it generically -- the first list
+        value in page one's response -- rather than hardcoding a guess per endpoint.
+        Stops when a page returns fewer than `limit` rows, which is correct regardless
+        of whether the endpoint also exposes a "total" count field (which also varies
+        and isn't relied on here). `max_pages` is a sanity cap against an unexpected
+        response shape causing an infinite loop, not a real-world limit -- 200 pages
+        at the default limit of 1000 covers 200,000 rows.
+        """
+        params = dict(params or {})
+        params.setdefault("limit", limit)
+        offset = 0
+        combined = None
+        list_key = None
+        for _ in range(max_pages):
+            params["offset"] = offset
+            page = self._request("GET", path, params=params)
+            if not isinstance(page, dict):
+                return page  # unexpected shape -- don't try to paginate something we don't understand
+            if combined is None:
+                combined = dict(page)
+                for key, value in page.items():
+                    if isinstance(value, list):
+                        list_key = key
+                        break
+                if list_key is None:
+                    return page  # no list found in the response -- nothing to paginate
+            else:
+                page_rows = page.get(list_key)
+                if isinstance(page_rows, list):
+                    combined[list_key].extend(page_rows)
+            page_rows = page.get(list_key) if list_key else None
+            if not isinstance(page_rows, list) or len(page_rows) < limit:
+                break
+            offset += limit
+        return combined
+
     def list_sites(self, sites_path):
-        return self._request("GET", sites_path)
+        return self._get_paginated(sites_path)
 
     def list_devices(self, devices_path, params=None):
-        return self._request("GET", devices_path, params=params or {})
+        return self._get_paginated(devices_path, params=params)
 
     def associate_devices_to_site(self, associate_path, serials, site_id, device_type="IAP", rate_limit_delay=0.2):
         """Assign devices to a Central site.

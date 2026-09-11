@@ -166,6 +166,14 @@ lets the proxy agent refresh automatically without you regenerating anything by 
 worth filling in even though the GUI marks it optional. These same steps are also
 shown inline in the GUI itself (Connect step → "How do I get these values?").
 
+Site and device listing (`central_client.py`'s `list_sites()`/`list_devices()`) page
+through Central's `offset`/`limit` convention automatically, so a large tenant's full
+device inventory or site list isn't silently truncated to one page. A `429` from
+Central (its own rate limiter, not a bug) is retried automatically with backoff — the
+`Retry-After` header if Central sends one, else a fixed 2s — up to 3 attempts, both
+here and in the per-device site-assignment loop, since both go through the same
+`_request()`.
+
 ## Mobility Conductor / Mobility Device hierarchy
 
 AOS 8 is not built around a single, all-powerful controller. Instead, it uses a hierarchical architecture where a **Mobility Conductor** (formerly known as a **Mobility Master**) manages one or more **Mobility Devices (MDs)**. Aruba updated the terminology as part of its modernization effort, but if you still say "Mobility Master," nobody on the networking team is going to look at you funny. Most of us know exactly what you mean.
