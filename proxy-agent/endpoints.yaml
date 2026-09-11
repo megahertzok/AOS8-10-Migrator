@@ -29,9 +29,26 @@ aos8:
   ap_convert_status_command: "show ap convert-status"
 
   # Best-effort local-flash storage listing, for the firmware pre-flight check.
-  # UNVERIFIED exact command name -- AOS8 doesn't document a canonical one; "show
-  # storage" is the common ArubaOS convention. Adjust if your firmware uses another.
-  show_storage_command: "show storage"
+  # UNVERIFIED exact command name -- AOS8 doesn't document a single canonical one, so
+  # this tries each in order and uses whichever one succeeds first ("show storage" is
+  # the common ArubaOS convention; "show image version" is the CLI command that lists
+  # boot-partition firmware images, which is closer to what this check actually wants
+  # to confirm; "show flash" is a plausible fallback). Add another candidate here if
+  # none of these work against your firmware -- app.py tries them in list order.
+  show_storage_commands:
+    - "show storage"
+    - "show image version"
+    - "show flash"
+
+  # Best-effort lookup of the controller's configured regulatory domain / country
+  # code -- `ap convert` permanently writes this onto every AP it converts (it cannot
+  # be changed afterward short of a factory reset), so the GUI surfaces it as a
+  # pre-flight warning (see README "Country code is permanent"). UNVERIFIED exact
+  # command/profile name -- AOS8 configures this per `ap regulatory-domain-profile`,
+  # commonly named "default" unless customized; adjust the profile name if your
+  # controller uses a different one. The GUI degrades gracefully to a static warning
+  # (no detected code) if this call fails.
+  show_regulatory_domain_command: "show ap regulatory-domain-profile default"
 
   # AP conversion family. REST object *names* are still UNVERIFIED (confirm via
   # /api/aos8/discover) but the CLI verbs and their exact argument shapes are now
