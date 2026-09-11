@@ -197,7 +197,10 @@ FAQ](https://arubanetworking.hpe.com/techdocs/Archived/central/2.5.5/content/faq
 3. Select that application and click **Generate** to create a token, then **Download
    Token** to get the **Access token** and **Refresh token**.
 4. The **API Gateway base URL** is shown on the same page — it's region-specific
-   (e.g. `apigw-uswest4.central.arubanetworks.com`).
+   (e.g. `apigw-uswest4.central.arubanetworks.com`). The Connect step's **Central
+   region** dropdown lists all of Central's documented regions and auto-fills the URL
+   field for you — pick "Custom / other" (or just edit the URL field directly) if
+   yours isn't listed.
 
 Access tokens expire after **2 hours**; the refresh token is valid for **14 days** and
 lets the proxy agent refresh automatically without you regenerating anything by hand —
