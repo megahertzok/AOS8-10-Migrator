@@ -22,3 +22,13 @@ aos8:
 
 central:
   default_base_url: ""   # e.g. https://apigw-uswest4.central.arubanetworks.com
+
+notifications:
+  # Optional: a webhook URL (Slack incoming webhook, or any endpoint that accepts a
+  # JSON POST) pinged after a conversion batch is submitted or a rollback completes,
+  # so you don't have to keep the browser tab open and watch. Note this fires when
+  # the batch is *submitted* (the ap convert active REST call succeeded/failed), not
+  # when every AP has actually finished converting -- AOS8 has no callback/webhook of
+  # its own for that, and confirming true per-AP completion needs the Execute step's
+  # live-status polling (which is browser-side) or the Verify step afterward.
+  webhook_url: ""

@@ -370,6 +370,16 @@ button.small { padding: 5px 10px; font-size: 12px; margin: 0; }
 .callout.critical { border-color: var(--critical); }
 .callout.critical svg { color: var(--critical); }
 
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.checkbox-row input { flex-shrink: 0; }
+
 .icon { display: inline-flex; vertical-align: middle; }
 
 /* ---------- tag / pill ---------- */
