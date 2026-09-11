@@ -26,6 +26,7 @@ DOCS_DIR = BASE_DIR.parent / "docs"
 CONFIG_PATH = BASE_DIR / "config.yaml"
 EXAMPLE_CONFIG_PATH = BASE_DIR / "config.example.yaml"
 ENDPOINTS_PATH = BASE_DIR / "endpoints.yaml"
+AP_MODEL_SUPPORT_PATH = BASE_DIR / "ap_model_support.yaml"
 
 
 def load_yaml(path):
@@ -35,6 +36,7 @@ def load_yaml(path):
 
 config = load_yaml(CONFIG_PATH if CONFIG_PATH.exists() else EXAMPLE_CONFIG_PATH)
 endpoints = load_yaml(ENDPOINTS_PATH)
+ap_model_support = load_yaml(AP_MODEL_SUPPORT_PATH)
 
 # The proxy agent also serves the GUI itself (the same docs/ folder GitHub Pages
 # hosts), so "Open GUI" always works -- including for purely local use with no
@@ -85,6 +87,30 @@ def _extract_rows(data, *container_keys):
         if isinstance(value, list) and value and isinstance(value[0], dict):
             return value
     return []
+
+
+def _model_support(model):
+    """Best-effort, deliberately incomplete AP hardware-compatibility check against
+    ap_model_support.yaml. Returns (status, reason): status is "unsupported",
+    "caveat", or "unknown" (no match either way, or no model captured at all --
+    always a warning to verify manually, never a silent pass)."""
+    if not model:
+        return "unknown", "AP model wasn't captured from the controller -- verify manually."
+    for entry in ap_model_support.get("unsupported", []):
+        if re.search(entry["match"], model, re.IGNORECASE):
+            return "unsupported", entry["reason"]
+    for entry in ap_model_support.get("caveats", []):
+        if re.search(entry["match"], model, re.IGNORECASE):
+            return "caveat", entry["reason"]
+    return "unknown", "Not in our best-known compatibility list (deliberately incomplete) -- verify manually."
+
+
+def _annotate_model_support(rows):
+    for row in rows:
+        status, reason = _model_support(row.get("model"))
+        row["model_support"] = status
+        row["model_support_reason"] = reason
+    return rows
 
 
 # `ap convert` was introduced in ArubaOS 8.6.0.0 -- on older firmware the command
@@ -301,8 +327,11 @@ def aos8_aps():
             # be current -- the rollback flow re-checks Central's inventory first when a
             # Central session is available (see docs/assets/app.js rollback flow).
             ap_ip=_first(row, "IP Address", "AP IP Address"),
+            # UNVERIFIED exact key -- used only for the best-effort hardware
+            # compatibility check (see ap_model_support.yaml / _model_support()).
+            model=_first(row, "AP Type", "Model Name", "Model"),
         )
-    return jsonify({"raw": data, "tracked": store.list_aps()})
+    return jsonify({"raw": data, "tracked": _annotate_model_support(store.list_aps())})
 
 
 def _convert_action(action_key, session_id, groups, build_payload):
@@ -639,7 +668,8 @@ def central_verify():
 
 @app.get("/api/tracking")
 def tracking_list():
-    return jsonify(store.list_aps(state=request.args.get("state"), ap_group=request.args.get("ap_group")))
+    rows = store.list_aps(state=request.args.get("state"), ap_group=request.args.get("ap_group"))
+    return jsonify(_annotate_model_support(rows))
 
 
 @app.post("/api/tracking/import")

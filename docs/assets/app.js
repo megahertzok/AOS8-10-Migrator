@@ -112,7 +112,7 @@
     URL.revokeObjectURL(url);
   }
 
-  const AP_CSV_COLUMNS = ["mac", "name", "ap_group", "original_ap_group", "state", "md_ip", "md_name", "md_config_path", "serial", "ap_ip", "central_site_id", "notes"];
+  const AP_CSV_COLUMNS = ["mac", "name", "ap_group", "original_ap_group", "state", "md_ip", "md_name", "md_config_path", "serial", "ap_ip", "central_site_id", "model", "notes"];
 
   // -------------------------------------------------------------- step nav
 
@@ -391,6 +391,17 @@
     }
   });
 
+  /** model_support/model_support_reason come from the proxy agent's deliberately
+   * incomplete ap_model_support.yaml check -- "unknown" is the honest default for
+   * anything not in that list, not a silent pass. */
+  function modelBadge(ap) {
+    const model = ap.model || "unknown";
+    const title = ap.model_support_reason ? ` title="${ap.model_support_reason.replace(/"/g, "&quot;")}"` : "";
+    if (ap.model_support === "unsupported") return `<span class="status-line error"${title}>${model} — unsupported</span>`;
+    if (ap.model_support === "caveat") return `<span class="status-line"${title} style="color:var(--warning)">${model} — caveat</span>`;
+    return `<span class="status-line"${title}>${model}</span>`;
+  }
+
   function renderApTable() {
     const tbody = document.getElementById("apTableBody");
     tbody.innerHTML = "";
@@ -405,6 +416,7 @@
         <td>${ap.serial || ""}</td>
         <td>${ap.ap_group || ""}</td>
         <td>${ap.md_name || ap.md_ip || ""}</td>
+        <td>${modelBadge(ap)}</td>
         <td><span class="state-badge state-${ap.state}">${ap.state}</span></td>
         <td>${ap.notes || ""}</td>
       `;
@@ -514,6 +526,27 @@
       appendLog(logId, `${label} @ ${g.config_path} (${g.ap_names.length} AP): ${g.error ? "ERROR " + g.error : JSON.stringify(g.result)}`);
     });
   }
+
+  document.getElementById("btnModelCompatCheck").addEventListener("click", () => {
+    if (!state.selected.size) return setStatus("modelCompatStatus", "No APs selected — check some in the Inventory tab.", "error");
+    const selectedAps = state.aps.filter((ap) => state.selected.has(ap.mac));
+    const unsupported = selectedAps.filter((ap) => ap.model_support === "unsupported");
+    const caveats = selectedAps.filter((ap) => ap.model_support === "caveat");
+    const unknown = selectedAps.filter((ap) => !ap.model_support || ap.model_support === "unknown");
+    const lines = [];
+    unsupported.forEach((ap) => lines.push(`UNSUPPORTED — ${ap.name || ap.mac} (${ap.model || "unknown model"}): ${ap.model_support_reason || ""}`));
+    caveats.forEach((ap) => lines.push(`CAVEAT — ${ap.name || ap.mac} (${ap.model || "unknown model"}): ${ap.model_support_reason || ""}`));
+    unknown.forEach((ap) => lines.push(`unknown — ${ap.name || ap.mac} (${ap.model || "unknown model"}): verify manually`));
+    const summary = lines.join("\n");
+    // Note: the compatibility list only knows "unsupported"/"caveat" entries -- there's
+    // no comprehensive "known good" list to match against, so "unknown" (verify
+    // manually) is the honest outcome for most APs, not a rare edge case.
+    if (unsupported.length) {
+      setStatus("modelCompatStatus", `${unsupported.length} selected AP(s) are known-unsupported:\n${summary}`, "error");
+    } else {
+      setStatus("modelCompatStatus", `No known-unsupported models in this selection (${caveats.length} caveat(s), ${unknown.length} unverified — see list, this check is deliberately incomplete):\n${summary}`, caveats.length ? "" : "ok");
+    }
+  });
 
   document.getElementById("btnConvertAdd").addEventListener("click", async () => {
     try {
