@@ -30,6 +30,10 @@ pre-flight validation, batch conversion, post-migration verification, scoped rol
 
 ## Running the proxy agent
 
+**Requires Python 3.10 or newer** (needed for current, security-patched versions of
+Pillow and requests — the launcher scripts check this and tell you clearly if your
+`python3`/`python` is too old, rather than failing partway through a cryptic pip error).
+
 1. Get it onto the machine that has network access to your controller/APs: the
    Connect step (step 1 in the GUI) has a **Download proxy agent (.zip)** link — it
    pulls the whole repo as a zip via GitHub's own archive endpoint, no separate build
