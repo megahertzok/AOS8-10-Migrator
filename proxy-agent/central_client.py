@@ -24,23 +24,37 @@ class CentralClient:
         self.timeout = timeout
 
     def refresh(self):
+        """Exchange the refresh token for a new access token. Called automatically by
+        _request() on a 401 -- the access token's 2-hour expiry is handled reactively
+        rather than tracking a timer, which is simpler and self-correcting. The
+        refresh token itself lasts 14 days; once *that* expires this raises a
+        CentralError clearly distinct from a plain request failure, since the fix is
+        different (re-generate a token in Central) from a transient network error."""
         if not self.refresh_token:
             raise CentralError("No refresh_token on file -- generate a new access token in Central.")
         debug_log.log("Central", f"POST {self.base_url}/oauth2/token  grant_type=refresh_token (refreshing access token)")
-        resp = requests.post(
-            f"{self.base_url}/oauth2/token",
-            params={
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "grant_type": "refresh_token",
-                "refresh_token": self.refresh_token,
-            },
-            timeout=self.timeout,
-        )
-        resp.raise_for_status()
+        try:
+            resp = requests.post(
+                f"{self.base_url}/oauth2/token",
+                params={
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "grant_type": "refresh_token",
+                    "refresh_token": self.refresh_token,
+                },
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+        except requests.HTTPError as exc:
+            debug_log.event("Central", f"Access token refresh failed: {exc} -- refresh token may itself be expired (14-day limit)", level="error")
+            raise CentralError(
+                f"Refreshing the Central access token failed ({exc}) -- the refresh token itself may have expired "
+                "(valid 14 days) or been revoked. Generate a new access token in Central and reconnect."
+            ) from exc
         data = resp.json()
         self.access_token = data["access_token"]
         self.refresh_token = data.get("refresh_token", self.refresh_token)
+        debug_log.event("Central", "Access token refreshed automatically", level="success")
         return self.access_token
 
     def _headers(self):
