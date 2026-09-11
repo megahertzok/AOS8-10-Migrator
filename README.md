@@ -291,6 +291,16 @@ immediate reboot may close the channel before output flushes back. If
 *reachable*, never that the specific image file exists — AOS8 doesn't expose an API
 for that. Read each result's `detail`/`error` field, don't just trust `reachable: true`.
 
+**Central error messages** now surface whatever human-readable description Central's
+own error response carries (`central_client.py`'s `_format_error()` tries a few
+common JSON keys — `description`, `error_description`, `message`, `error`) instead of
+a bare HTTP status line, which is all a plain `resp.raise_for_status()` used to show.
+This matters most for site assignment: a device that's already claimed under a
+different Central customer/app instance, or an invalid `site_id`, now shows Central's
+own explanation instead of just "409 Client Error." The exact key Central uses isn't
+confirmed for every error type — if you hit one that comes back as a bare status
+line, check the raw response body and add the key to `_format_error()`.
+
 **Tray icon dependencies** (`pystray` + `Pillow`, for the menu-bar/system-tray icon):
 on macOS, `pystray`'s Objective-C bindings (`pyobjc-core`) fail to *compile* against
 recent Xcode if `pip` tries to build them from source — this happened in testing with
