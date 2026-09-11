@@ -154,10 +154,10 @@
 
       <div class="card">
         <h2>Topology <span class="hint-inline">(Mobility Master &rarr; Mobility Controllers)</span></h2>
-        <p class="hint">AOS8's Mobility Master never terminates APs itself &mdash; each AP is homed on a specific Mobility Controller (MD). Load this <strong>first</strong>, before refreshing the AP list, so AP-convert actions land on the right MD instead of the MM. Skip this only if you're connected to a standalone controller (no MM).</p>
+        <p class="hint">AOS8's Mobility Master never terminates APs itself &mdash; each AP is homed on a specific Mobility Controller (MD). Load this <strong>first</strong>, before refreshing the AP list, so AP-convert actions land on the right MD instead of the MM. Skip this only if you're connected to a standalone controller (no MM). <code>ap convert</code> requires firmware <strong>8.6.0.0 or later</strong> &mdash; controllers below that are flagged in the "Firmware" column.</p>
         <button id="btnLoadTopology">Load topology (show switches)</button>
         <table class="data-table" id="topologyTable">
-          <thead><tr><th>Name</th><th>IP</th><th>Location (config_path)</th><th>Type</th><th>Status</th><th>Model</th><th>Version</th></tr></thead>
+          <thead><tr><th>Name</th><th>IP</th><th>Location (config_path)</th><th>Type</th><th>Status</th><th>Model</th><th>Version</th><th>Firmware</th></tr></thead>
           <tbody id="topologyTableBody"></tbody>
         </table>
       </div>
@@ -220,7 +220,14 @@
       </div>
 
       <div class="card">
-        <h3>3a. Add to conversion list &amp; pre-validate</h3>
+        <h3>3a. Controller firmware version</h3>
+        <p class="hint"><code>ap convert</code> was introduced in ArubaOS <strong>8.6.0.0</strong> &mdash; on older firmware the command doesn't exist and conversion fails confusingly. Checks the anchor controller(s) for your currently-selected APs (loads topology automatically if you haven't already).</p>
+        <button id="btnFirmwareVersionCheck">Check controller firmware</button>
+        <div class="status-line" id="firmwareVersionStatus"></div>
+      </div>
+
+      <div class="card">
+        <h3>3b. Add to conversion list &amp; pre-validate</h3>
         <p class="hint"><code>pre-validate</code> is the official way to confirm an AP is licensed in Central and has a group assigned &mdash; the results appear in the log below. Do this before Execute, not after.</p>
         <div class="button-row">
           <button id="btnConvertAdd">1. Add to conversion list</button>
@@ -230,7 +237,7 @@
       </div>
 
       <div class="card">
-        <h3>3b. Firmware source</h3>
+        <h3>3c. Firmware source</h3>
         <p class="hint">Where the AOS10 image comes from during conversion. Local flash or a TFTP/FTP/SCP server you control are the most common choices for a tightly-managed network; HTTP(S) also works.</p>
         <div class="grid-3">
           <label>Delivery method <span class="required-mark">*</span>

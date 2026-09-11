@@ -181,6 +181,11 @@ If topology hasn't been loaded yet, AP rows fall back to `config_path: "/md"`, w
 
 Before executing a conversion, the Convert & Rollback tab surfaces:
 
+- **Controller firmware version** — `ap convert` was introduced in ArubaOS 8.6.0.0;
+  on older firmware the command doesn't exist and conversion fails confusingly. "Check
+  controller firmware" cross-references your selected APs' anchor controller(s) against
+  the version reported by `show switches` (also flagged in the Topology table on the
+  Inventory tab) and warns if any are below the minimum.
 - **Licensing and group assignment** — `ap convert pre-validate` itself checks that
   each AP is licensed on Central and reports which Central group it will land in.
   This *is* the licensing check; there's no separate Central API call for it. Run it

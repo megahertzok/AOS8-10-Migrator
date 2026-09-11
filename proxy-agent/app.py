@@ -6,6 +6,7 @@ by default). Nothing here is reachable from the public internet unless you
 explicitly change `proxy_agent.host` to 0.0.0.0 in config.yaml.
 """
 
+import re
 import uuid
 from pathlib import Path
 
@@ -84,6 +85,31 @@ def _extract_rows(data, *container_keys):
         if isinstance(value, list) and value and isinstance(value[0], dict):
             return value
     return []
+
+
+# `ap convert` was introduced in ArubaOS 8.6.0.0 -- on older firmware the command
+# doesn't exist and conversion attempts fail confusingly. See README "Known gaps".
+MIN_AP_CONVERT_VERSION = (8, 6, 0)
+
+
+def _parse_version(version_str):
+    """Best-effort major.minor.patch extraction from a `show switches` "Version"
+    string (e.g. "8.10.0.5_88245" or "8.6.0.4"). Returns None if it doesn't parse,
+    which callers treat as "unknown", not "fails the check"."""
+    if not version_str:
+        return None
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", str(version_str))
+    if not match:
+        return None
+    return tuple(int(g) for g in match.groups())
+
+
+def _meets_min_firmware(version_str, minimum=MIN_AP_CONVERT_VERSION):
+    """True/False if the version parses, else None ("unknown, verify manually")."""
+    parsed = _parse_version(version_str)
+    if parsed is None:
+        return None
+    return parsed >= minimum
 
 
 def error_response(exc, status=400):
@@ -218,6 +244,10 @@ def aos8_topology_view():
                 "status": _first(row, "Status"),
                 "model": _first(row, "Model"),
                 "version": _first(row, "Version"),
+                # True/False if we could parse the version and compare it to the
+                # 8.6.0.0 minimum `ap convert` requires; None if the version string
+                # didn't parse -- the GUI treats that as "verify manually", not a pass.
+                "firmware_ok": _meets_min_firmware(_first(row, "Version")),
             }
         )
     aos8_topology[session_id] = switches
