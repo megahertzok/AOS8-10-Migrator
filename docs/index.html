@@ -272,6 +272,13 @@
         <pre class="log" id="convertLog"></pre>
       </div>
       <p class="hint">Conversion takes a few minutes per AP. Once it reboots and checks into Central, continue to <strong>Step 5 &mdash; Verify in Central</strong>.</p>
+
+      <div class="card">
+        <h3>Clear a stale conversion job</h3>
+        <p class="hint">If you navigated away instead of letting a batch finish (or cancelling it), a job can be left outstanding on the controller. This tool never uses <code>all-aps</code> mode &mdash; Execute always targets specific APs &mdash; but a leftover job is still worth clearing explicitly rather than leaving it. Clears <code>ap convert</code> state for the controller(s) anchoring your <em>currently selected</em> APs; this is controller-wide, not limited to those specific APs.</p>
+        <button id="btnConvertClearAll" class="secondary">Clear pending job (selected APs' controllers)</button>
+        <div class="status-line" id="clearAllStatus"></div>
+      </div>
     </section>
 
     <!-- ============================================================ STEP 5: VERIFY -->

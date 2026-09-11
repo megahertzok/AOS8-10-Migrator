@@ -207,6 +207,16 @@ a gate — so you can also cross-check the older way HPE's own guide suggests: l
 `show ap lldp neighbors` from the AP's switch port; a still-AOS8 AP shows as a CAP,
 a converted one shows as an IAP.
 
+## Clearing a stale conversion job
+
+This tool never uses `ap convert active all-aps` — Execute always targets
+`specific-aps` — specifically because a community report on HPE Airheads describes a
+leftover `all-aps` job silently converting newly-joining APs that were never intended
+for migration. Still, a job from `add`/`pre-validate` can be left outstanding on a
+controller if you navigate away instead of finishing or cancelling it. The Execute
+step has a **"Clear pending job"** button (`ap convert clear-all`) for exactly that —
+it's controller-wide, not limited to your current AP selection, so use it deliberately.
+
 ## Rollback — single AP, group, or site
 
 HPE's docs are explicit that reverting AOS10 back to AOS8 **"cannot be performed at

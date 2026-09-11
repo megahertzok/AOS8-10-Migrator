@@ -547,6 +547,21 @@
     }
   });
 
+  document.getElementById("btnConvertClearAll").addEventListener("click", async () => {
+    try {
+      requireAos8();
+      const groups = selectedGroups();
+      if (!groups.length) throw new Error("No APs selected — check some in the Inventory tab so their anchor controller(s) can be resolved.");
+      const config_paths = groups.map((g) => g.config_path);
+      if (!confirm(`Clear any pending ap convert job on ${config_paths.length} controller(s)? This is controller-wide, not limited to your current AP selection.`)) return;
+      const data = await api("POST", "/api/aos8/convert/clear-all", { body: { session_id: state.aos8SessionId, config_paths } });
+      const failed = (data.groups || []).filter((g) => g.error);
+      setStatus("clearAllStatus", failed.length ? `${failed.length} controller(s) failed to clear — see debug log.` : `Cleared pending job on ${config_paths.length} controller(s).`, failed.length ? "error" : "ok");
+    } catch (err) {
+      setStatus("clearAllStatus", `Clear failed: ${err.message}`, "error");
+    }
+  });
+
   // ----------------------------------------------------- post-migration verify
 
   document.getElementById("btnVerifyCentral").addEventListener("click", async () => {
