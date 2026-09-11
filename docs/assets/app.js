@@ -142,7 +142,7 @@
   // Convenience only -- so you don't retype hostnames/URLs every visit. Deliberately
   // excludes every password/secret/token field; those are never written to storage.
   const PERSISTED_FIELD_IDS = [
-    "aos8Host", "aos8User", "aos8VerifyTls",
+    "aos8Host", "aos8User", "aos8VerifyTls", "standaloneController",
     "centralBaseUrl", "centralClientId",
     "apSshUser",
     "fwServerType", "fwHost", "fwPort", "fwPath", "fwUsername",
@@ -313,6 +313,16 @@
     if (!state.aos8SessionId) throw new Error("Connect to the AOS8 controller first (Connect tab).");
   }
 
+  /** Distinguishes "intentionally standalone" from "forgot to load topology on a
+   * real MM" -- both silently fall back to targeting /md directly, but only one of
+   * those is correct. See the standaloneController checkbox's field-hint on Connect. */
+  function syncTopologyWarning() {
+    const isStandalone = document.getElementById("standaloneController").checked;
+    document.getElementById("noTopologyWarning").hidden = isStandalone || state.topology.length > 0;
+  }
+
+  document.getElementById("standaloneController").addEventListener("change", syncTopologyWarning);
+
   document.getElementById("btnLoadTopology").addEventListener("click", async () => {
     try {
       requireAos8();
@@ -325,6 +335,7 @@
         tr.innerHTML = `<td>${sw.name || ""}</td><td>${sw.ip || ""}</td><td>${sw.location || ""}</td><td>${sw.type || ""}</td><td>${sw.status || ""}</td><td>${sw.model || ""}</td><td>${sw.version || ""}</td>`;
         tbody.appendChild(tr);
       });
+      syncTopologyWarning();
     } catch (err) {
       alert(err.message);
     }
@@ -386,6 +397,7 @@
       state.aps = data.tracked || [];
       renderApTable();
       markStepDone("inventory", state.aps.length > 0);
+      syncTopologyWarning();
     } catch (err) {
       alert(err.message);
     }
@@ -868,4 +880,5 @@
   wirePersistedFields();
   armTrackingAutoRefresh(); // in case a saved auto-refresh interval was just restored
   pollDebugLog();
+  syncTopologyWarning();
 })();

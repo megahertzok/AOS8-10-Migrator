@@ -174,7 +174,7 @@ The distinction matters because the Mobility Conductor is responsible for orches
 
 This can be confusing when you're looking at the environment from the top of the hierarchy. The AP is visible from the Conductor, the configuration is visible from the Conductor, and the AP may even *appear* to belong to the Conductor. But when it comes time to perform AP-local operations, Aruba expects those commands to be sent to the correct Mobility Device. 
 
-If topology hasn't been loaded yet, AP rows fall back to `config_path: "/md"`, which only works correctly for a standalone controller (not a real MM with multiple MDs) — always load topology first in a real MM deployment.
+If topology hasn't been loaded yet, AP rows fall back to `config_path: "/md"`, which only works correctly for a standalone controller (not a real MM with multiple MDs) — always load topology first in a real MM deployment. The Connect step has a **"This is a standalone controller"** checkbox specifically so this fallback is an intentional choice, not an accident: leaving it unchecked shows a warning on Inventory if topology hasn't been loaded, so a real-MM user who simply forgot doesn't silently get actions routed to the wrong controller. `show switches` on an actual standalone controller (no MM) is `UNVERIFIED` — confirm it returns something sensible (or errors cleanly) against real standalone hardware; the checkbox's own fallback (skip topology, target `/md` directly) doesn't depend on that either way.
 
 
 ## Pre-flight checks

@@ -89,6 +89,8 @@
           </label>
           <label class="checkbox-line"><input type="checkbox" id="aos8VerifyTls" /> Verify TLS certificate <span class="hint-inline">(optional)</span></label>
           <span class="field-hint">Leave unchecked for the self-signed certificate most AOS8 controllers ship with.</span>
+          <label class="checkbox-line"><input type="checkbox" id="standaloneController" /> This is a standalone controller <span class="hint-inline">(no Mobility Master)</span></label>
+          <span class="field-hint">Check this if you're connecting directly to a single controller with no MM tier above it. It skips the "load topology first" step and tells this tool not to warn you about it &mdash; leave it <strong>unchecked</strong> for a real MM deployment, since the same silent fallback this checkbox intentionally uses (targeting <code>/md</code> directly) is also what happens if you forget to load topology on a real MM, which would send actions to the wrong controller. <strong>UNVERIFIED</strong> against real standalone-controller hardware &mdash; see README "Known gaps."</span>
           <div class="button-row">
             <button id="btnAos8Connect">Connect to controller</button>
             <button class="secondary" id="btnAos8Disconnect">Disconnect</button>
@@ -156,6 +158,10 @@
         <h2>Topology <span class="hint-inline">(Mobility Master &rarr; Mobility Controllers)</span></h2>
         <p class="hint">AOS8's Mobility Master never terminates APs itself &mdash; each AP is homed on a specific Mobility Controller (MD). Load this <strong>first</strong>, before refreshing the AP list, so AP-convert actions land on the right MD instead of the MM. Skip this only if you're connected to a standalone controller (no MM).</p>
         <button id="btnLoadTopology">Load topology (show switches)</button>
+        <div class="callout warning" id="noTopologyWarning" hidden>
+          <span>&#9888;</span>
+          <div>Topology hasn't been loaded and you haven't checked "standalone controller" on Connect. AP actions will fall back to targeting <code>/md</code> directly &mdash; correct for a standalone controller, <strong>wrong</strong> for a real MM (it won't land on the AP's actual anchor MD). Load topology above, or check "standalone controller" on Connect if that's what this is.</div>
+        </div>
         <table class="data-table" id="topologyTable">
           <thead><tr><th>Name</th><th>IP</th><th>Location (config_path)</th><th>Type</th><th>Status</th><th>Model</th><th>Version</th></tr></thead>
           <tbody id="topologyTableBody"></tbody>
