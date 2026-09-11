@@ -313,6 +313,49 @@
     if (!state.aos8SessionId) throw new Error("Connect to the AOS8 controller first (Connect tab).");
   }
 
+  /** ap convert needs ArubaOS 8.6.0.0+ -- firmware_ok is true/false if the topology
+   * endpoint could parse and compare the controller's version, or null/undefined if
+   * the version string didn't parse (treated as "verify manually", not a pass). */
+  function firmwareBadge(firmwareOk) {
+    if (firmwareOk === true) return '<span class="status-line ok">8.6+ OK</span>';
+    if (firmwareOk === false) return '<span class="status-line error">Below 8.6.0.0</span>';
+    return '<span class="status-line">unknown &mdash; verify manually</span>';
+  }
+
+  async function ensureTopologyLoaded() {
+    if (state.topology.length) return;
+    const data = await api("GET", "/api/aos8/topology", { params: { session_id: state.aos8SessionId } });
+    state.topology = data.switches || [];
+  }
+
+  document.getElementById("btnFirmwareVersionCheck").addEventListener("click", async () => {
+    try {
+      requireAos8();
+      if (!state.selected.size) throw new Error("No APs selected — check some in the Inventory tab.");
+      await ensureTopologyLoaded();
+      const selectedAps = state.aps.filter((ap) => state.selected.has(ap.mac));
+      const anchorIps = new Set(selectedAps.map((ap) => ap.md_ip).filter(Boolean));
+      const controllers = state.topology.filter((sw) => anchorIps.has(sw.ip));
+      if (!controllers.length) {
+        setStatus("firmwareVersionStatus", "Couldn't match selected APs to a loaded controller — load Topology on the Inventory tab, then retry.", "error");
+        return;
+      }
+      const failing = controllers.filter((sw) => sw.firmware_ok === false);
+      const unknown = controllers.filter((sw) => sw.firmware_ok === null || sw.firmware_ok === undefined);
+      const lines = controllers.map((sw) => `${sw.name || sw.ip}: ${sw.version || "unknown version"} — ${sw.firmware_ok === true ? "OK" : sw.firmware_ok === false ? "BELOW 8.6.0.0" : "unknown, verify manually"}`);
+      const summary = lines.join("\n");
+      if (failing.length) {
+        setStatus("firmwareVersionStatus", `${failing.length} controller(s) below the minimum firmware for ap convert:\n${summary}`, "error");
+      } else if (unknown.length) {
+        setStatus("firmwareVersionStatus", `Couldn't confirm firmware version for ${unknown.length} controller(s) — verify manually before converting:\n${summary}`, "");
+      } else {
+        setStatus("firmwareVersionStatus", `All anchor controllers meet the 8.6.0.0 minimum:\n${summary}`, "ok");
+      }
+    } catch (err) {
+      setStatus("firmwareVersionStatus", `Check failed: ${err.message}`, "error");
+    }
+  });
+
   document.getElementById("btnLoadTopology").addEventListener("click", async () => {
     try {
       requireAos8();
@@ -322,7 +365,7 @@
       tbody.innerHTML = "";
       state.topology.forEach((sw) => {
         const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${sw.name || ""}</td><td>${sw.ip || ""}</td><td>${sw.location || ""}</td><td>${sw.type || ""}</td><td>${sw.status || ""}</td><td>${sw.model || ""}</td><td>${sw.version || ""}</td>`;
+        tr.innerHTML = `<td>${sw.name || ""}</td><td>${sw.ip || ""}</td><td>${sw.location || ""}</td><td>${sw.type || ""}</td><td>${sw.status || ""}</td><td>${sw.model || ""}</td><td>${sw.version || ""}</td><td>${firmwareBadge(sw.firmware_ok)}</td>`;
         tbody.appendChild(tr);
       });
     } catch (err) {
