@@ -253,6 +253,17 @@ a gate — so you can also cross-check the older way HPE's own guide suggests: l
 `show ap lldp neighbors` from the AP's switch port; a still-AOS8 AP shows as a CAP,
 a converted one shows as an IAP.
 
+### If the proxy agent restarts mid-migration
+
+Any AP left in a `converting` or `pre_validated` state means an action was started
+but never confirmed finished — most likely the proxy agent restarted, or a browser
+tab closed before a batch completed. A banner appears at the top of the GUI (any
+page, no AOS8/Central session required — it's a pure read of the local tracking
+database) listing how many; "Dismiss" won't nag you again for the same count, but it
+comes back if the number changes. Nothing resumes automatically — review the
+Tracking dashboard and decide per-AP whether to re-check status, re-run pre-validate,
+or treat it as done.
+
 ## Clearing a stale conversion job
 
 This tool never uses `ap convert active all-aps` — Execute always targets

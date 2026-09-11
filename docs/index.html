@@ -27,6 +27,15 @@
 
   <div class="disclaimer">Unofficial community tool for HPE Aruba Networking migrations &mdash; not affiliated with, endorsed by, or supported by Hewlett Packard Enterprise.</div>
 
+  <div class="callout warning" id="inProgressBanner" hidden style="margin:10px 20px;">
+    <span>&#9888;</span>
+    <div>
+      <strong id="inProgressBannerText"></strong>
+      This can happen after the proxy agent restarts mid-migration, or a browser tab closed before a batch finished. Nothing resumes automatically &mdash; review these in the <a href="#" id="inProgressBannerLink">Tracking dashboard</a> before starting new work.
+      <button class="secondary small" id="btnDismissInProgressBanner" style="margin-left:8px;">Dismiss</button>
+    </div>
+  </div>
+
   <div class="shell">
     <nav class="sidebar" id="sidebar">
       <div class="sidebar-group-label">Migration steps &mdash; follow in order</div>
