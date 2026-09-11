@@ -55,6 +55,24 @@ def init_db():
     for column in ("original_ap_group", "central_site_id", "ap_ip", "model"):
         if column not in existing_cols:
             conn.execute(f"ALTER TABLE aps ADD COLUMN {column} TEXT")
+    # Append-only audit trail, separate from the live "aps" table above (which only
+    # reflects each AP's *current* state). Written automatically by upsert_ap()
+    # whenever a state actually changes, so nothing needs to remember to log it at
+    # each of the many call sites across app.py -- durable record of every AP's
+    # migration history, independent of the tracking dashboard's live-state CSV export.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp REAL NOT NULL,
+            mac TEXT NOT NULL,
+            name TEXT,
+            state_before TEXT,
+            state_after TEXT NOT NULL,
+            notes TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -107,6 +125,18 @@ def upsert_ap(
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (mac, name, ap_group, ap_group, state or "discovered", now, notes, md_ip, md_name, md_config_path, serial, central_site_id, ap_ip, model),
         )
+
+    # Audit trail: only on an actual state change (a new AP, or an explicit state
+    # that differs from what it was) -- not on every field-touching upsert_ap() call,
+    # most of which just refresh md_ip/serial/etc without the AP's state changing.
+    state_before = existing["state"] if existing else None
+    state_after = state if state is not None else state_before
+    if not existing or (state is not None and state != state_before):
+        conn.execute(
+            "INSERT INTO audit_log (timestamp, mac, name, state_before, state_after, notes) VALUES (?, ?, ?, ?, ?, ?)",
+            (now, mac, name or (existing["name"] if existing else None), state_before, state_after or "discovered", notes),
+        )
+
     conn.commit()
     conn.close()
 
@@ -177,6 +207,20 @@ def get_ap(mac):
     row = conn.execute("SELECT * FROM aps WHERE mac = ?", (mac,)).fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def list_audit_log(mac=None, limit=5000):
+    conn = _connect()
+    query = "SELECT * FROM audit_log"
+    params = []
+    if mac:
+        query += " WHERE mac = ?"
+        params.append(mac)
+    query += " ORDER BY timestamp DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
 
 
 def list_by_site(central_site_id):

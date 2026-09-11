@@ -498,7 +498,9 @@
           </select>
         </label>
         <button class="secondary" id="btnExportTrackingCsv">Export CSV</button>
+        <button class="secondary" id="btnExportAuditLogCsv">Export audit log (CSV)</button>
       </div>
+      <p class="hint">"Export CSV" is a snapshot of current state. "Export audit log" is different: every state change any tracked AP has ever gone through, in order &mdash; a durable record for compliance/change-management, independent of what's currently in the table below.</p>
       <table class="data-table" id="trackingTable">
         <thead>
           <tr>
