@@ -145,6 +145,14 @@ Fields marked with a red **\*** are required to move on; everything else (TLS
 verification, refresh tokens, AP SSH credentials, firmware server auth) is optional —
 rollback in particular is entirely optional and never blocks the main flow.
 
+Execute has a **live status** panel: it auto-starts after you click "Execute
+conversion" and polls `show ap convert-status` every 5s for the controller(s)
+involved, so you can watch a batch progress without manually clicking "Refresh
+status" back in Step 3. It stops automatically after 30 minutes if left running, or
+any time via the Stop button. `show ap convert-status`'s exact response shape is
+`UNVERIFIED`, same caveat as pre-validate's table — it finds whatever array of
+per-item results the response contains rather than guessing specific field names.
+
 ## Getting your Aruba Central API credentials
 
 The Connect step's Aruba Central card needs four things: **API Gateway base URL**,
