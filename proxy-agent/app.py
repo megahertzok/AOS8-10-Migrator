@@ -220,6 +220,33 @@ def aos8_discover():
     return jsonify(client.discover(candidates))
 
 
+@app.get("/api/aos8/show")
+def aos8_show_raw():
+    """Run an arbitrary `show ...` command through the documented showcommand
+    passthrough and return the raw JSON, unparsed. This is a diagnostic tool, not
+    part of the migration workflow -- it exists so anyone with real controller access
+    can self-serve the verification this tool's "Known gaps" section asks for (real
+    REST object names via /api/aos8/discover, and real showcommand field names/JSON
+    shapes) directly from the GUI, without needing curl or a separate REST client.
+    Restricted to strings starting with "show " -- showcommand itself is read-only
+    by AOS8's own design, but this is defense in depth against the field being misused
+    for something other than its intended diagnostic purpose."""
+    session_id = request.args.get("session_id")
+    command = (request.args.get("command") or "").strip()
+    if not command.lower().startswith("show "):
+        return error_response("command must start with 'show ' -- this tool only runs read-only show commands")
+    try:
+        client = _aos8_client(session_id)
+    except KeyError as exc:
+        return error_response(exc, 401)
+    config_path = request.args.get("config_path") or "/mm"
+    try:
+        data = client.show_command(command, config_path=config_path)
+    except Exception as exc:  # noqa: BLE001
+        return error_response(exc, 502)
+    return jsonify(data)
+
+
 @app.get("/api/aos8/country-code")
 def aos8_country_code():
     """Best-effort lookup of the controller's configured regulatory domain / country

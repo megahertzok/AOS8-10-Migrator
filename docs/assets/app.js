@@ -288,6 +288,29 @@
     saveSession();
   });
 
+  document.getElementById("btnAos8Discover").addEventListener("click", async () => {
+    try {
+      requireAos8();
+      const data = await api("GET", "/api/aos8/discover", { params: { session_id: state.aos8SessionId } });
+      appendLog("diagnosticsLog", `Discover: ${JSON.stringify(data, null, 2)}`);
+    } catch (err) {
+      appendLog("diagnosticsLog", `ERROR: ${err.message}`);
+    }
+  });
+
+  document.getElementById("btnRunShowCommand").addEventListener("click", async () => {
+    try {
+      requireAos8();
+      const command = document.getElementById("showCommandInput").value.trim();
+      const config_path = document.getElementById("showCommandConfigPath").value.trim() || undefined;
+      if (!command) throw new Error('Enter a command, e.g. "show ap database long".');
+      const data = await api("GET", "/api/aos8/show", { params: { session_id: state.aos8SessionId, command, config_path } });
+      appendLog("diagnosticsLog", `${command}${config_path ? ` @ ${config_path}` : ""}: ${JSON.stringify(data, null, 2)}`);
+    } catch (err) {
+      appendLog("diagnosticsLog", `ERROR: ${err.message}`);
+    }
+  });
+
   document.getElementById("btnCentralConnect").addEventListener("click", async () => {
     const base_url = document.getElementById("centralBaseUrl").value.trim();
     const client_id = document.getElementById("centralClientId").value.trim();

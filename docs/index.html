@@ -143,6 +143,29 @@
       </div>
 
       <p class="hint legend"><span class="required-mark">*</span> required to proceed to the next step. Everything else is optional.</p>
+
+      <details class="steps-details">
+        <summary>Advanced: API diagnostics (for verifying this tool against your controller)</summary>
+        <p class="hint">Several REST object names and showcommand field names in this tool are <strong>UNVERIFIED</strong> best guesses (see README "Known gaps") since HPE doesn't publish a fetchable, comprehensive API reference. These two tools let you check them against your <em>actual</em> controller directly from the GUI, without a separate REST client &mdash; and if something doesn't match, <a href="https://github.com/megahertzok/AOS8-10-Migrator/blob/main/proxy-agent/endpoints.yaml" target="_blank" rel="noopener">proxy-agent/endpoints.yaml</a> is where to fix it. Requires an active AOS8 connection above.</p>
+        <div class="grid-2">
+          <div>
+            <h3>Discover the controller's own API index</h3>
+            <p class="hint">Probes a few common self-documenting paths (<code>/api</code>, <code>/v1/api-docs</code>, <code>/v3/api-docs</code>) for your controller's real endpoint list.</p>
+            <button id="btnAos8Discover" class="secondary">Discover API endpoints</button>
+          </div>
+          <div>
+            <h3>Run a read-only show command</h3>
+            <label>Command <span class="hint-inline">(must start with "show ")</span>
+              <input type="text" id="showCommandInput" placeholder="show ap database long" />
+            </label>
+            <label>config_path <span class="hint-inline">(optional, defaults to /mm)</span>
+              <input type="text" id="showCommandConfigPath" placeholder="/mm" />
+            </label>
+            <button id="btnRunShowCommand" class="secondary">Run</button>
+          </div>
+        </div>
+        <pre class="log" id="diagnosticsLog"></pre>
+      </details>
     </section>
 
     <!-- ============================================================ STEP 2: AP INVENTORY -->
