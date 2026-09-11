@@ -27,6 +27,15 @@
 
   <div class="disclaimer">Unofficial community tool for HPE Aruba Networking migrations &mdash; not affiliated with, endorsed by, or supported by Hewlett Packard Enterprise.</div>
 
+  <div class="callout warning" id="inProgressBanner" hidden style="margin:10px 20px;">
+    <span>&#9888;</span>
+    <div>
+      <strong id="inProgressBannerText"></strong>
+      This can happen after the proxy agent restarts mid-migration, or a browser tab closed before a batch finished. Nothing resumes automatically &mdash; review these in the <a href="#" id="inProgressBannerLink">Tracking dashboard</a> before starting new work.
+      <button class="secondary small" id="btnDismissInProgressBanner" style="margin-left:8px;">Dismiss</button>
+    </div>
+  </div>
+
   <div class="shell">
     <nav class="sidebar" id="sidebar">
       <div class="sidebar-group-label">Migration steps &mdash; follow in order</div>
@@ -89,6 +98,8 @@
           </label>
           <label class="checkbox-line"><input type="checkbox" id="aos8VerifyTls" /> Verify TLS certificate <span class="hint-inline">(optional)</span></label>
           <span class="field-hint">Leave unchecked for the self-signed certificate most AOS8 controllers ship with.</span>
+          <label class="checkbox-line"><input type="checkbox" id="standaloneController" /> This is a standalone controller <span class="hint-inline">(no Mobility Master)</span></label>
+          <span class="field-hint">Check this if you're connecting directly to a single controller with no MM tier above it. It skips the "load topology first" step and tells this tool not to warn you about it &mdash; leave it <strong>unchecked</strong> for a real MM deployment, since the same silent fallback this checkbox intentionally uses (targeting <code>/md</code> directly) is also what happens if you forget to load topology on a real MM, which would send actions to the wrong controller. <strong>UNVERIFIED</strong> against real standalone-controller hardware &mdash; see README "Known gaps."</span>
           <div class="button-row">
             <button id="btnAos8Connect">Connect to controller</button>
             <button class="secondary" id="btnAos8Disconnect">Disconnect</button>
@@ -143,6 +154,29 @@
       </div>
 
       <p class="hint legend"><span class="required-mark">*</span> required to proceed to the next step. Everything else is optional.</p>
+
+      <details class="steps-details">
+        <summary>Advanced: API diagnostics (for verifying this tool against your controller)</summary>
+        <p class="hint">Several REST object names and showcommand field names in this tool are <strong>UNVERIFIED</strong> best guesses (see README "Known gaps") since HPE doesn't publish a fetchable, comprehensive API reference. These two tools let you check them against your <em>actual</em> controller directly from the GUI, without a separate REST client &mdash; and if something doesn't match, <a href="https://github.com/megahertzok/AOS8-10-Migrator/blob/main/proxy-agent/endpoints.yaml" target="_blank" rel="noopener">proxy-agent/endpoints.yaml</a> is where to fix it. Requires an active AOS8 connection above.</p>
+        <div class="grid-2">
+          <div>
+            <h3>Discover the controller's own API index</h3>
+            <p class="hint">Probes a few common self-documenting paths (<code>/api</code>, <code>/v1/api-docs</code>, <code>/v3/api-docs</code>) for your controller's real endpoint list.</p>
+            <button id="btnAos8Discover" class="secondary">Discover API endpoints</button>
+          </div>
+          <div>
+            <h3>Run a read-only show command</h3>
+            <label>Command <span class="hint-inline">(must start with "show ")</span>
+              <input type="text" id="showCommandInput" placeholder="show ap database long" />
+            </label>
+            <label>config_path <span class="hint-inline">(optional, defaults to /mm)</span>
+              <input type="text" id="showCommandConfigPath" placeholder="/mm" />
+            </label>
+            <button id="btnRunShowCommand" class="secondary">Run</button>
+          </div>
+        </div>
+        <pre class="log" id="diagnosticsLog"></pre>
+      </details>
     </section>
 
     <!-- ============================================================ STEP 2: AP INVENTORY -->
@@ -154,10 +188,14 @@
 
       <div class="card">
         <h2>Topology <span class="hint-inline">(Mobility Master &rarr; Mobility Controllers)</span></h2>
-        <p class="hint">AOS8's Mobility Master never terminates APs itself &mdash; each AP is homed on a specific Mobility Controller (MD). Load this <strong>first</strong>, before refreshing the AP list, so AP-convert actions land on the right MD instead of the MM. Skip this only if you're connected to a standalone controller (no MM).</p>
+        <p class="hint">AOS8's Mobility Master never terminates APs itself &mdash; each AP is homed on a specific Mobility Controller (MD). Load this <strong>first</strong>, before refreshing the AP list, so AP-convert actions land on the right MD instead of the MM. Skip this only if you're connected to a standalone controller (no MM). <code>ap convert</code> requires firmware <strong>8.6.0.0 or later</strong> &mdash; controllers below that are flagged in the "Firmware" column.</p>
         <button id="btnLoadTopology">Load topology (show switches)</button>
+        <div class="callout warning" id="noTopologyWarning" hidden>
+          <span>&#9888;</span>
+          <div>Topology hasn't been loaded and you haven't checked "standalone controller" on Connect. AP actions will fall back to targeting <code>/md</code> directly &mdash; correct for a standalone controller, <strong>wrong</strong> for a real MM (it won't land on the AP's actual anchor MD). Load topology above, or check "standalone controller" on Connect if that's what this is.</div>
+        </div>
         <table class="data-table" id="topologyTable">
-          <thead><tr><th>Name</th><th>IP</th><th>Location (config_path)</th><th>Type</th><th>Status</th><th>Model</th><th>Version</th></tr></thead>
+          <thead><tr><th>Name</th><th>IP</th><th>Location (config_path)</th><th>Type</th><th>Status</th><th>Model</th><th>Version</th><th>Firmware</th></tr></thead>
           <tbody id="topologyTableBody"></tbody>
         </table>
       </div>
@@ -170,7 +208,7 @@
           <input type="file" id="csvImportInput" accept=".csv" hidden />
           <button class="secondary" id="btnExportApsCsv">Export CSV</button>
         </div>
-        <p class="hint">CSV columns: <code>mac</code> (required, the row key), plus any of <code>name, ap_group, state, notes, md_ip, md_name, md_config_path, serial, central_site_id, ap_ip</code> &mdash; all optional. Unknown extra columns are kept for your reference and simply ignored on import.</p>
+        <p class="hint">CSV columns: <code>mac</code> (required, the row key), plus any of <code>name, ap_group, state, notes, md_ip, md_name, md_config_path, serial, central_site_id, ap_ip, model</code> &mdash; all optional. Unknown extra columns are kept for your reference and simply ignored on import.</p>
         <div class="status-line" id="csvImportStatus"></div>
       </div>
 
@@ -184,6 +222,7 @@
             <th>Serial</th>
             <th>Group</th>
             <th>Controller (MD)</th>
+            <th>Model</th>
             <th>State</th>
             <th>Notes</th>
           </tr>
@@ -207,8 +246,41 @@
         </div>
       </div>
 
+      <div class="callout critical">
+        <span>&#9888;</span>
+        <div>
+          <strong>Country code is permanent.</strong> <code>ap convert</code> writes this controller's configured regulatory domain (country code) onto every AP it converts &mdash; <strong>once written it cannot be changed</strong> without a factory reset, and it also permanently ties FCC-locked hardware to a US-only regulatory domain. If the APs you're converting are destined for a Central site in a <em>different</em> country than this controller, stop and re-home them from a controller in the correct region first.
+          <div class="status-line" id="countryCodeStatus">Detected controller country code: <strong id="countryCodeValue">unknown &mdash; connect to AOS8 above, or confirm manually before continuing</strong></div>
+          <label class="checkbox-row">
+            <input type="checkbox" id="ackCountryCode" />
+            I understand the country code written during this conversion is permanent and correct for these APs' destination.
+          </label>
+        </div>
+      </div>
+
+      <div class="callout warning">
+        <span>&#9888;</span>
+        <div>
+          <strong>Watch for auto-join into a nearby cluster.</strong> A converted AP can automatically join an existing Instant/AOS10 cluster within radio range and inherit <em>that</em> cluster's configuration &mdash; which can look like a failed migration when the AP is actually fine, just in the wrong place. If a converted AP doesn't land where you expected, check for other clusters nearby before assuming something went wrong. (<a href="https://airheads.hpe.com/discussion/ap-convert-command-in-86" target="_blank" rel="noopener">source</a>)
+        </div>
+      </div>
+
       <div class="card">
-        <h3>3a. Add to conversion list &amp; pre-validate</h3>
+        <h3>3a. AP hardware compatibility</h3>
+        <p class="hint">Not every AP model supports <code>ap convert</code> (older AP-200 series can't run past InstantOS 6.5; some AP-325 units lack enough memory). This checks your current selection against a <strong>best-known, deliberately incomplete</strong> compatibility list &mdash; "unknown" means verify manually, not "safe."</p>
+        <button id="btnModelCompatCheck">Check AP model compatibility</button>
+        <div class="status-line" id="modelCompatStatus"></div>
+      </div>
+
+      <div class="card">
+        <h3>3b. Controller firmware version</h3>
+        <p class="hint"><code>ap convert</code> was introduced in ArubaOS <strong>8.6.0.0</strong> &mdash; on older firmware the command doesn't exist and conversion fails confusingly. Checks the anchor controller(s) for your currently-selected APs (loads topology automatically if you haven't already).</p>
+        <button id="btnFirmwareVersionCheck">Check controller firmware</button>
+        <div class="status-line" id="firmwareVersionStatus"></div>
+      </div>
+
+      <div class="card">
+        <h3>3c. Add to conversion list &amp; pre-validate</h3>
         <p class="hint"><code>pre-validate</code> is the official way to confirm an AP is licensed in Central and has a group assigned &mdash; the results appear in the log below. Do this before Execute, not after.</p>
         <div class="button-row">
           <button id="btnConvertAdd">1. Add to conversion list</button>
@@ -223,7 +295,7 @@
       </div>
 
       <div class="card">
-        <h3>3b. Firmware source</h3>
+        <h3>3d. Firmware source</h3>
         <p class="hint">Where the AOS10 image comes from during conversion. Local flash or a TFTP/FTP/SCP server you control are the most common choices for a tightly-managed network; HTTP(S) also works.</p>
         <div class="grid-3">
           <label>Delivery method <span class="required-mark">*</span>
@@ -260,6 +332,13 @@
         <div class="status-line" id="firmwareCheckStatus"></div>
       </div>
 
+      <div class="card">
+        <h3>3c. AP &rarr; Central network reachability <span class="hint-inline">(approximate)</span></h3>
+        <p class="hint">A very common real-world failure isn't the conversion itself &mdash; it's a converted AP that never appears in Central because its VLAN can't reach Aruba's cloud services at all (DNS, outbound HTTPS, firewall/proxy rules). This checks from <strong>the proxy agent's own network</strong>, which is a useful signal but not a guarantee if the AP's VLAN has a different egress path than the proxy agent's &mdash; the real confirmation is the Verify step after conversion. Also confirm manually: the AP's VLAN needs working <strong>DNS</strong> and <strong>NTP</strong> (a badly-skewed clock can break the TLS handshake to Central), neither of which can be tested from here.</p>
+        <button id="btnCentralReachabilityCheck">Check reachability</button>
+        <div class="status-line" id="centralReachabilityStatus"></div>
+      </div>
+
       <pre class="log" id="preflightLog"></pre>
       <p class="hint">When pre-validate reports success and your firmware source checks out, continue to <strong>Step 4 &mdash; Execute conversion</strong>.</p>
     </section>
@@ -277,6 +356,13 @@
         <pre class="log" id="convertLog"></pre>
       </div>
       <p class="hint">Conversion takes a few minutes per AP. Once it reboots and checks into Central, continue to <strong>Step 5 &mdash; Verify in Central</strong>.</p>
+
+      <div class="card">
+        <h3>Clear a stale conversion job</h3>
+        <p class="hint">If you navigated away instead of letting a batch finish (or cancelling it), a job can be left outstanding on the controller. This tool never uses <code>all-aps</code> mode &mdash; Execute always targets specific APs &mdash; but a leftover job is still worth clearing explicitly rather than leaving it. Clears <code>ap convert</code> state for the controller(s) anchoring your <em>currently selected</em> APs; this is controller-wide, not limited to those specific APs.</p>
+        <button id="btnConvertClearAll" class="secondary">Clear pending job (selected APs' controllers)</button>
+        <div class="status-line" id="clearAllStatus"></div>
+      </div>
     </section>
 
     <!-- ============================================================ STEP 5: VERIFY -->
