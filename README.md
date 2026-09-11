@@ -311,7 +311,12 @@ against HPE's own docs. What's still `UNVERIFIED` in
 [`proxy-agent/endpoints.yaml`](proxy-agent/endpoints.yaml) is the exact **REST object
 name** each of those write actions maps to (no public doc confirms them) and the exact
 JSON field names in showcommand responses (`app.py`'s `_first()`/`_extract_rows()`
-helpers try several likely variants). Before relying on this against a real controller:
+helpers try several likely variants, matched case-insensitively as a fallback since
+firmware versions have been observed to differ only in key casing). If the AP
+inventory silently comes back short, check the proxy agent's log — `aos8_aps()` logs a
+warning naming exactly how many rows it had to skip for lacking a recognized MAC
+field, so a wrong guess is loud, not silent. Before relying on this against a real
+controller:
 
 1. Connect to the MM/controller in the GUI.
 2. Open **Connect → Advanced: API diagnostics** and click **Discover API endpoints**

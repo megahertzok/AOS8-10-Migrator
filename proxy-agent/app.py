@@ -69,10 +69,17 @@ aos8_topology = {}
 
 def _first(d, *keys, default=None):
     """Return the first present key's value -- AOS8 showcommand JSON key casing/naming
-    varies by firmware, so field lookups try a few known variants rather than one guess."""
+    varies by firmware, so field lookups try a few known variants rather than one guess.
+    Tries each variant as an exact match first, then falls back to a case-insensitive
+    match against every key actually present -- firmware versions have been observed to
+    differ only in casing (e.g. "Name" vs "name") for otherwise-identical fields."""
     for key in keys:
         if key in d:
             return d[key]
+    lowered = {str(k).lower(): v for k, v in d.items()}
+    for key in keys:
+        if key.lower() in lowered:
+            return lowered[key.lower()]
     return default
 
 
@@ -290,17 +297,17 @@ def aos8_topology_view():
     for row in rows:
         switches.append(
             {
-                "name": _first(row, "Name"),
-                "ip": _first(row, "IP Address", "IPAddress"),
-                "location": _first(row, "Location"),
-                "type": _first(row, "Type"),
-                "status": _first(row, "Status"),
-                "model": _first(row, "Model"),
-                "version": _first(row, "Version"),
+                "name": _first(row, "Name", "Switch Name", "Device Name"),
+                "ip": _first(row, "IP Address", "IPAddress", "IP"),
+                "location": _first(row, "Location", "Config Path", "Path"),
+                "type": _first(row, "Type", "Device Type", "Switch Type"),
+                "status": _first(row, "Status", "Configuration State", "State"),
+                "model": _first(row, "Model", "Device Model"),
+                "version": _first(row, "Version", "Firmware Version", "Software Version"),
                 # True/False if we could parse the version and compare it to the
                 # 8.6.0.0 minimum `ap convert` requires; None if the version string
                 # didn't parse -- the GUI treats that as "verify manually", not a pass.
-                "firmware_ok": _meets_min_firmware(_first(row, "Version")),
+                "firmware_ok": _meets_min_firmware(_first(row, "Version", "Firmware Version", "Software Version")),
             }
         )
     aos8_topology[session_id] = switches
@@ -334,29 +341,43 @@ def aos8_aps():
     # _first()/_extract_rows() try known variants. Adjust once confirmed against a
     # real controller (see README "Mobility Master / Mobility Controller hierarchy").
     rows = _extract_rows(data, "AP Database", "APs")
+    skipped_no_mac = 0
     for row in rows:
-        mac = _first(row, "Wired MAC Address", "AP Wired MAC Address", "MAC Address")
+        mac = _first(row, "Wired MAC Address", "AP Wired MAC Address", "MAC Address", "Wired Mac Address", "AP MAC")
         if not mac:
+            skipped_no_mac += 1
             continue
-        switch_ip = _first(row, "Switch IP", "Switch IP Address")
+        switch_ip = _first(row, "Switch IP", "Switch IP Address", "Switch IP Addr")
         md_config_path, md_name = _md_config_path_for_ip(session_id, switch_ip) if switch_ip else ("/md", None)
         store.upsert_ap(
             mac,
             name=_first(row, "Name", "AP Name"),
-            ap_group=_first(row, "Group", "AP Group"),
+            ap_group=_first(row, "Group", "AP Group", "Group Name"),
             md_ip=switch_ip,
             md_name=md_name,
             md_config_path=md_config_path,
-            serial=_first(row, "AP Serial #", "Serial #", "Serial"),
+            serial=_first(row, "AP Serial #", "Serial #", "Serial", "Serial Number"),
             # The AP's OWN management IP -- distinct from switch_ip (its anchor MD's IP).
             # This is what rollback SSHes into. Note it can go stale: once an AP converts
             # to AOS10 it gets a new DHCP lease, so this pre-migration value may no longer
             # be current -- the rollback flow re-checks Central's inventory first when a
             # Central session is available (see docs/assets/app.js rollback flow).
-            ap_ip=_first(row, "IP Address", "AP IP Address"),
+            ap_ip=_first(row, "IP Address", "AP IP Address", "IP Addr"),
             # UNVERIFIED exact key -- used only for the best-effort hardware
             # compatibility check (see ap_model_support.yaml / _model_support()).
             model=_first(row, "AP Type", "Model Name", "Model"),
+        )
+    if skipped_no_mac:
+        # This is the single most likely symptom of a wrong field-name guess for this
+        # firmware -- surface it loudly instead of silently returning a short list.
+        # Inspect the raw showcommand response (the "raw" key in this endpoint's own
+        # JSON response, or GET /api/aos8/show?command=show+ap+database+long) to find
+        # the actual key name and fix the guesses in app.py's aos8_aps().
+        debug_log.event(
+            "AP Inventory",
+            f"{skipped_no_mac} row(s) from {endpoints['aos8']['show_ap_database_command']} had no recognized MAC "
+            "field and were skipped -- the field-name guess likely doesn't match this firmware.",
+            level="warning",
         )
     return jsonify({"raw": data, "tracked": _annotate_model_support(store.list_aps())})
 
