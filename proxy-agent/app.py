@@ -113,6 +113,31 @@ def _annotate_model_support(rows):
     return rows
 
 
+# `ap convert` was introduced in ArubaOS 8.6.0.0 -- on older firmware the command
+# doesn't exist and conversion attempts fail confusingly. See README "Known gaps".
+MIN_AP_CONVERT_VERSION = (8, 6, 0)
+
+
+def _parse_version(version_str):
+    """Best-effort major.minor.patch extraction from a `show switches` "Version"
+    string (e.g. "8.10.0.5_88245" or "8.6.0.4"). Returns None if it doesn't parse,
+    which callers treat as "unknown", not "fails the check"."""
+    if not version_str:
+        return None
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", str(version_str))
+    if not match:
+        return None
+    return tuple(int(g) for g in match.groups())
+
+
+def _meets_min_firmware(version_str, minimum=MIN_AP_CONVERT_VERSION):
+    """True/False if the version parses, else None ("unknown, verify manually")."""
+    parsed = _parse_version(version_str)
+    if parsed is None:
+        return None
+    return parsed >= minimum
+
+
 def error_response(exc, status=400):
     debug_log.event("Error", f"({status}) {exc}", level="error")
     return jsonify({"error": str(exc)}), status
@@ -195,6 +220,29 @@ def aos8_discover():
     return jsonify(client.discover(candidates))
 
 
+@app.get("/api/aos8/country-code")
+def aos8_country_code():
+    """Best-effort lookup of the controller's configured regulatory domain / country
+    code, for the pre-flight warning that `ap convert` permanently writes this onto
+    every AP it converts. Non-fatal on failure -- the GUI still shows a static warning
+    even if this specific lookup doesn't work against a given firmware/profile name."""
+    session_id = request.args.get("session_id")
+    try:
+        client = _aos8_client(session_id)
+    except KeyError as exc:
+        return error_response(exc, 401)
+    config_path = request.args.get("config_path", "/mm")
+    try:
+        data = client.show_command(endpoints["aos8"]["show_regulatory_domain_command"], config_path=config_path)
+    except Exception as exc:  # noqa: BLE001 -- best-effort, never blocks the pre-flight step
+        return jsonify({"country_code": None, "error": str(exc)})
+
+    rows = _extract_rows(data, "Regulatory Domain Profile", "AP Regulatory Domain Profile")
+    row = rows[0] if rows else data
+    country_code = _first(row, "Country Code", "country-code", "Country")
+    return jsonify({"country_code": country_code, "raw": data if not country_code else None})
+
+
 @app.get("/api/aos8/topology")
 def aos8_topology_view():
     """Discover every Mobility Controller (MD) the Mobility Master manages, via
@@ -222,6 +270,10 @@ def aos8_topology_view():
                 "status": _first(row, "Status"),
                 "model": _first(row, "Model"),
                 "version": _first(row, "Version"),
+                # True/False if we could parse the version and compare it to the
+                # 8.6.0.0 minimum `ap convert` requires; None if the version string
+                # didn't parse -- the GUI treats that as "verify manually", not a pass.
+                "firmware_ok": _meets_min_firmware(_first(row, "Version")),
             }
         )
     aos8_topology[session_id] = switches
