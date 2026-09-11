@@ -288,6 +288,14 @@ Before executing a conversion, the Convert & Rollback tab surfaces:
   signal, not a guarantee, if those differ. DNS and NTP on the AP's VLAN can't be
   tested from here at all — confirm those manually; a badly-skewed clock can break
   the TLS handshake to Central on its own.
+- **Backup AP config (recommended)** — "Snapshot config for selected APs" pulls a
+  best-effort raw config dump per AP and saves it locally before you convert, so
+  there's something concrete to compare against if rollback doesn't fully restore
+  expected behavior (exactly the VLAN/AP1X/proxy/PPPoE/mesh gaps above). The AOS8
+  command for a per-AP effective-config dump is `UNVERIFIED` (tries a few candidates
+  in `endpoints.yaml`'s `show_ap_config_commands`) and the response isn't parsed into
+  specific fields — it's stored raw for manual reference, not a structured diff.
+  "Export saved snapshots (JSON)" downloads everything captured so far.
 
 ## Post-migration verification
 

@@ -112,6 +112,18 @@
     URL.revokeObjectURL(url);
   }
 
+  function downloadJSON(filename, obj) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   const AP_CSV_COLUMNS = ["mac", "name", "ap_group", "original_ap_group", "state", "md_ip", "md_name", "md_config_path", "serial", "ap_ip", "central_site_id", "model", "notes"];
 
   // -------------------------------------------------------------- step nav
@@ -631,6 +643,35 @@
     table.hidden = rowCount === 0;
     fallback.hidden = rowCount > 0;
   }
+
+  document.getElementById("btnSnapshotConfig").addEventListener("click", async () => {
+    try {
+      requireAos8();
+      const selectedAps = state.aps.filter((ap) => state.selected.has(ap.mac));
+      if (!selectedAps.length) throw new Error("No APs selected — check some in the Inventory tab.");
+      const aps = selectedAps.map((ap) => ({ mac: ap.mac, name: ap.name || ap.mac, config_path: ap.md_config_path }));
+      const data = await api("POST", "/api/aos8/snapshot-config", { body: { session_id: state.aos8SessionId, aps } });
+      const ok = data.results.filter((r) => r.command_used).length;
+      const failed = data.results.filter((r) => r.error);
+      setStatus(
+        "snapshotConfigStatus",
+        `Snapshotted ${ok}/${aps.length} AP(s).` + (failed.length ? ` ${failed.length} failed: ${failed.map((f) => `${f.mac} (${f.error})`).join("; ")}` : ""),
+        failed.length === aps.length ? "error" : "ok"
+      );
+    } catch (err) {
+      setStatus("snapshotConfigStatus", `Snapshot failed: ${err.message}`, "error");
+    }
+  });
+
+  document.getElementById("btnExportSnapshots").addEventListener("click", async () => {
+    try {
+      const rows = await api("GET", "/api/tracking/config-snapshots", {});
+      if (!rows.length) return setStatus("snapshotConfigStatus", "No saved snapshots yet.", "");
+      downloadJSON("ap-config-snapshots.json", rows);
+    } catch (err) {
+      setStatus("snapshotConfigStatus", `Export failed: ${err.message}`, "error");
+    }
+  });
 
   document.getElementById("btnConvertAdd").addEventListener("click", async () => {
     try {

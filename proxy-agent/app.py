@@ -538,6 +538,61 @@ def convert_status():
     return jsonify(data)
 
 
+@app.post("/api/aos8/snapshot-config")
+def aos8_snapshot_config():
+    """Best-effort pre-conversion config snapshot. Config-retention gaps are already
+    documented (native VLAN, AP1X, HTTP proxy, PPPoE, mesh settings aren't migrated
+    into Central) -- this doesn't parse those specific fields out, since the exact
+    AOS8 command and its response shape for a per-AP effective-config dump are
+    UNVERIFIED (tries each candidate in endpoints.yaml's show_ap_config_commands in
+    order). Stores whatever the controller returns, raw, in migration_store's
+    config_snapshots table, so there's at least something concrete to compare
+    against manually if rollback doesn't fully restore expected AP behavior.
+    Best-effort per AP -- one AP's failure doesn't stop the rest of the batch."""
+    body = request.get_json(force=True)
+    session_id = body.get("session_id")
+    aps = body.get("aps", [])  # [{mac, name, config_path}, ...]
+    try:
+        client = _aos8_client(session_id)
+    except KeyError as exc:
+        return error_response(exc, 401)
+
+    commands = endpoints["aos8"].get("show_ap_config_commands", [])
+    results = []
+    for ap in aps:
+        mac = ap.get("mac")
+        ap_name = ap.get("name") or mac
+        config_path = ap.get("config_path") or "/mm"
+        if not mac or not ap_name:
+            results.append({"mac": mac, "error": "missing mac or name"})
+            continue
+        saved = False
+        errors = []
+        for command_template in commands:
+            command = command_template.format(ap_name=ap_name)
+            try:
+                data = client.show_command(command, config_path=config_path)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{command}: {exc}")
+                continue
+            store.save_config_snapshot(mac, command, data)
+            results.append({"mac": mac, "command_used": command})
+            saved = True
+            break
+        if not saved:
+            results.append({"mac": mac, "error": "; ".join(errors) or "no candidate commands configured"})
+    debug_log.event(
+        "Config Snapshot", f"Snapshotted {sum(1 for r in results if 'command_used' in r)}/{len(aps)} AP(s) before conversion",
+        level="success" if any("command_used" in r for r in results) else "warning",
+    )
+    return jsonify({"results": results})
+
+
+@app.get("/api/tracking/config-snapshots")
+def tracking_config_snapshots():
+    return jsonify(store.list_config_snapshots(mac=request.args.get("mac")))
+
+
 @app.post("/api/aos8/firmware-check")
 def aos8_firmware_check():
     """Best-effort pre-flight check that the chosen firmware source is reachable

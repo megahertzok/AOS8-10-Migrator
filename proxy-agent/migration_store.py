@@ -4,6 +4,7 @@ This is the tracking source of truth: once an AP fully converts and leaves the A
 controller's own visibility, this is the only place its migration history still lives.
 """
 
+import json
 import sqlite3
 import time
 from pathlib import Path
@@ -55,6 +56,24 @@ def init_db():
     for column in ("original_ap_group", "central_site_id", "ap_ip", "model"):
         if column not in existing_cols:
             conn.execute(f"ALTER TABLE aps ADD COLUMN {column} TEXT")
+    # Pre-conversion config snapshots -- best-effort raw dumps of an AP's effective
+    # config right before it's converted, so there's something concrete to compare
+    # against if rollback doesn't fully restore expected behavior. Config-retention
+    # gaps are already documented (native VLAN, AP1X, HTTP proxy, PPPoE, mesh aren't
+    # migrated into Central) -- this doesn't parse those specific fields out (the
+    # exact AOS8 command and response shape are UNVERIFIED, see app.py), it just
+    # preserves whatever the controller returns, raw, for manual reference.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS config_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp REAL NOT NULL,
+            mac TEXT NOT NULL,
+            command_used TEXT,
+            raw_json TEXT
+        )
+        """
+    )
     # Append-only audit trail, separate from the live "aps" table above (which only
     # reflects each AP's *current* state). Written automatically by upsert_ap()
     # whenever a state actually changes, so nothing needs to remember to log it at
@@ -75,6 +94,35 @@ def init_db():
     )
     conn.commit()
     conn.close()
+
+
+def save_config_snapshot(mac, command_used, raw):
+    conn = _connect()
+    conn.execute(
+        "INSERT INTO config_snapshots (timestamp, mac, command_used, raw_json) VALUES (?, ?, ?, ?)",
+        (time.time(), mac, command_used, json.dumps(raw)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def list_config_snapshots(mac=None, limit=2000):
+    conn = _connect()
+    query = "SELECT * FROM config_snapshots"
+    params = []
+    if mac:
+        query += " WHERE mac = ?"
+        params.append(mac)
+    query += " ORDER BY timestamp DESC LIMIT ?"
+    params.append(limit)
+    rows = [dict(row) for row in conn.execute(query, params).fetchall()]
+    conn.close()
+    for row in rows:
+        try:
+            row["raw"] = json.loads(row.pop("raw_json"))
+        except (TypeError, ValueError):
+            row["raw"] = None
+    return rows
 
 
 def upsert_ap(
