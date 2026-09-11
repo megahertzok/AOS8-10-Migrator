@@ -327,12 +327,16 @@ controller:
 3. Correct `proxy-agent/endpoints.yaml` to match, and adjust the field-name lists in
    `app.py` if the "Controller (MD)" column or AP serials don't populate correctly.
 
-**SSH rollback** (`proxy-agent/ssh_client.py`) uses a non-interactive `exec_command`,
-which works for many Aruba CLI single-shot commands over SSH but not necessarily all —
-some Aruba CLIs expect an interactive PTY instead, and a command that triggers an
-immediate reboot may close the channel before output flushes back. If
-`convert-aos-ap cap` doesn't behave as expected against a real AP, switch to
-`client.invoke_shell()` there instead (see the docstring in that file).
+**SSH rollback** (`proxy-agent/ssh_client.py`) tries a non-interactive `exec_command`
+first, which works for many Aruba CLI single-shot commands over SSH but not
+necessarily all — some Aruba CLIs expect an interactive PTY instead, and a command
+that triggers an immediate reboot may close the channel before an exit status is
+flushed back. `run_ap_command()` now detects both symptoms (an `SSHException`, or
+paramiko's exit status `-1`, its documented signal for "channel closed before an exit
+status arrived") and automatically retries once via `invoke_shell()` — unit-tested
+against mocked SSH behavior for both trigger paths, but still `UNVERIFIED` against a
+real AP, since which path AOS10's `convert-aos-ap cap` actually needs can only be
+confirmed against real hardware.
 
 **Firmware pre-flight checks** (`proxy-agent/firmware_check.py`) confirm a server is
 *reachable*, never that the specific image file exists — AOS8 doesn't expose an API
