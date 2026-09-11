@@ -112,7 +112,7 @@
     URL.revokeObjectURL(url);
   }
 
-  const AP_CSV_COLUMNS = ["mac", "name", "ap_group", "original_ap_group", "state", "md_ip", "md_name", "md_config_path", "serial", "ap_ip", "central_site_id", "notes"];
+  const AP_CSV_COLUMNS = ["mac", "name", "ap_group", "original_ap_group", "state", "md_ip", "md_name", "md_config_path", "serial", "ap_ip", "central_site_id", "model", "notes"];
 
   // -------------------------------------------------------------- step nav
 
@@ -142,7 +142,7 @@
   // Convenience only -- so you don't retype hostnames/URLs every visit. Deliberately
   // excludes every password/secret/token field; those are never written to storage.
   const PERSISTED_FIELD_IDS = [
-    "aos8Host", "aos8User", "aos8VerifyTls",
+    "aos8Host", "aos8User", "aos8VerifyTls", "standaloneController",
     "centralBaseUrl", "centralClientId",
     "apSshUser",
     "fwServerType", "fwHost", "fwPort", "fwPath", "fwUsername",
@@ -172,6 +172,7 @@
         document.getElementById("aos8Dot").className = "dot dot-on";
         setStatus("aos8Status", "Restored previous session (reload AP inventory to confirm it's still valid).", "ok");
         markStepDone("connect", true);
+        fetchCountryCode();
       }
       if (saved.centralSessionId) {
         state.centralSessionId = saved.centralSessionId;
@@ -253,11 +254,29 @@
       setStatus("aos8Status", `Connected to ${host}.`, "ok");
       markStepDone("connect", !!state.centralSessionId || true);
       saveSession();
+      checkInProgress();
+      fetchCountryCode();
     } catch (err) {
       document.getElementById("aos8Dot").className = "dot dot-off";
       setStatus("aos8Status", `Connect failed: ${err.message}`, "error");
     }
   });
+
+  /** Best-effort: shows the controller's configured regulatory domain / country code
+   * next to the pre-flight warning that `ap convert` permanently writes it onto every
+   * AP it converts. Never blocks the workflow if the lookup itself fails. */
+  async function fetchCountryCode() {
+    const el = document.getElementById("countryCodeValue");
+    if (!state.aos8SessionId || !el) return;
+    try {
+      const data = await api("GET", "/api/aos8/country-code", { params: { session_id: state.aos8SessionId } });
+      el.textContent = data.country_code
+        ? `${data.country_code} (double-check this is correct for the APs' destination before continuing)`
+        : "could not be detected automatically — confirm manually on the controller before continuing";
+    } catch (err) {
+      el.textContent = "could not be detected automatically — confirm manually on the controller before continuing";
+    }
+  }
 
   document.getElementById("btnAos8Disconnect").addEventListener("click", async () => {
     try {
@@ -268,6 +287,29 @@
     setStatus("aos8Status", "Disconnected.", "");
     markStepDone("connect", false);
     saveSession();
+  });
+
+  document.getElementById("btnAos8Discover").addEventListener("click", async () => {
+    try {
+      requireAos8();
+      const data = await api("GET", "/api/aos8/discover", { params: { session_id: state.aos8SessionId } });
+      appendLog("diagnosticsLog", `Discover: ${JSON.stringify(data, null, 2)}`);
+    } catch (err) {
+      appendLog("diagnosticsLog", `ERROR: ${err.message}`);
+    }
+  });
+
+  document.getElementById("btnRunShowCommand").addEventListener("click", async () => {
+    try {
+      requireAos8();
+      const command = document.getElementById("showCommandInput").value.trim();
+      const config_path = document.getElementById("showCommandConfigPath").value.trim() || undefined;
+      if (!command) throw new Error('Enter a command, e.g. "show ap database long".');
+      const data = await api("GET", "/api/aos8/show", { params: { session_id: state.aos8SessionId, command, config_path } });
+      appendLog("diagnosticsLog", `${command}${config_path ? ` @ ${config_path}` : ""}: ${JSON.stringify(data, null, 2)}`);
+    } catch (err) {
+      appendLog("diagnosticsLog", `ERROR: ${err.message}`);
+    }
   });
 
   document.getElementById("btnCentralConnect").addEventListener("click", async () => {
@@ -313,6 +355,59 @@
     if (!state.aos8SessionId) throw new Error("Connect to the AOS8 controller first (Connect tab).");
   }
 
+  /** Distinguishes "intentionally standalone" from "forgot to load topology on a
+   * real MM" -- both silently fall back to targeting /md directly, but only one of
+   * those is correct. See the standaloneController checkbox's field-hint on Connect. */
+  function syncTopologyWarning() {
+    const isStandalone = document.getElementById("standaloneController").checked;
+    document.getElementById("noTopologyWarning").hidden = isStandalone || state.topology.length > 0;
+  }
+
+  document.getElementById("standaloneController").addEventListener("change", syncTopologyWarning);
+
+  /** ap convert needs ArubaOS 8.6.0.0+ -- firmware_ok is true/false if the topology
+   * endpoint could parse and compare the controller's version, or null/undefined if
+   * the version string didn't parse (treated as "verify manually", not a pass). */
+  function firmwareBadge(firmwareOk) {
+    if (firmwareOk === true) return '<span class="status-line ok">8.6+ OK</span>';
+    if (firmwareOk === false) return '<span class="status-line error">Below 8.6.0.0</span>';
+    return '<span class="status-line">unknown &mdash; verify manually</span>';
+  }
+
+  async function ensureTopologyLoaded() {
+    if (state.topology.length) return;
+    const data = await api("GET", "/api/aos8/topology", { params: { session_id: state.aos8SessionId } });
+    state.topology = data.switches || [];
+  }
+
+  document.getElementById("btnFirmwareVersionCheck").addEventListener("click", async () => {
+    try {
+      requireAos8();
+      if (!state.selected.size) throw new Error("No APs selected — check some in the Inventory tab.");
+      await ensureTopologyLoaded();
+      const selectedAps = state.aps.filter((ap) => state.selected.has(ap.mac));
+      const anchorIps = new Set(selectedAps.map((ap) => ap.md_ip).filter(Boolean));
+      const controllers = state.topology.filter((sw) => anchorIps.has(sw.ip));
+      if (!controllers.length) {
+        setStatus("firmwareVersionStatus", "Couldn't match selected APs to a loaded controller — load Topology on the Inventory tab, then retry.", "error");
+        return;
+      }
+      const failing = controllers.filter((sw) => sw.firmware_ok === false);
+      const unknown = controllers.filter((sw) => sw.firmware_ok === null || sw.firmware_ok === undefined);
+      const lines = controllers.map((sw) => `${sw.name || sw.ip}: ${sw.version || "unknown version"} — ${sw.firmware_ok === true ? "OK" : sw.firmware_ok === false ? "BELOW 8.6.0.0" : "unknown, verify manually"}`);
+      const summary = lines.join("\n");
+      if (failing.length) {
+        setStatus("firmwareVersionStatus", `${failing.length} controller(s) below the minimum firmware for ap convert:\n${summary}`, "error");
+      } else if (unknown.length) {
+        setStatus("firmwareVersionStatus", `Couldn't confirm firmware version for ${unknown.length} controller(s) — verify manually before converting:\n${summary}`, "");
+      } else {
+        setStatus("firmwareVersionStatus", `All anchor controllers meet the 8.6.0.0 minimum:\n${summary}`, "ok");
+      }
+    } catch (err) {
+      setStatus("firmwareVersionStatus", `Check failed: ${err.message}`, "error");
+    }
+  });
+
   document.getElementById("btnLoadTopology").addEventListener("click", async () => {
     try {
       requireAos8();
@@ -322,13 +417,25 @@
       tbody.innerHTML = "";
       state.topology.forEach((sw) => {
         const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${sw.name || ""}</td><td>${sw.ip || ""}</td><td>${sw.location || ""}</td><td>${sw.type || ""}</td><td>${sw.status || ""}</td><td>${sw.model || ""}</td><td>${sw.version || ""}</td>`;
+        tr.innerHTML = `<td>${sw.name || ""}</td><td>${sw.ip || ""}</td><td>${sw.location || ""}</td><td>${sw.type || ""}</td><td>${sw.status || ""}</td><td>${sw.model || ""}</td><td>${sw.version || ""}</td><td>${firmwareBadge(sw.firmware_ok)}</td>`;
         tbody.appendChild(tr);
       });
+      syncTopologyWarning();
     } catch (err) {
       alert(err.message);
     }
   });
+
+  /** model_support/model_support_reason come from the proxy agent's deliberately
+   * incomplete ap_model_support.yaml check -- "unknown" is the honest default for
+   * anything not in that list, not a silent pass. */
+  function modelBadge(ap) {
+    const model = ap.model || "unknown";
+    const title = ap.model_support_reason ? ` title="${ap.model_support_reason.replace(/"/g, "&quot;")}"` : "";
+    if (ap.model_support === "unsupported") return `<span class="status-line error"${title}>${model} — unsupported</span>`;
+    if (ap.model_support === "caveat") return `<span class="status-line"${title} style="color:var(--warning)">${model} — caveat</span>`;
+    return `<span class="status-line"${title}>${model}</span>`;
+  }
 
   function renderApTable() {
     const tbody = document.getElementById("apTableBody");
@@ -344,6 +451,7 @@
         <td>${ap.serial || ""}</td>
         <td>${ap.ap_group || ""}</td>
         <td>${ap.md_name || ap.md_ip || ""}</td>
+        <td>${modelBadge(ap)}</td>
         <td><span class="state-badge state-${ap.state}">${ap.state}</span></td>
         <td>${ap.notes || ""}</td>
       `;
@@ -386,6 +494,7 @@
       state.aps = data.tracked || [];
       renderApTable();
       markStepDone("inventory", state.aps.length > 0);
+      syncTopologyWarning();
     } catch (err) {
       alert(err.message);
     }
@@ -450,8 +559,77 @@
 
   function logGroupResults(logId, label, groups) {
     (groups.groups || []).forEach((g) => {
-      appendLog(logId, `${label} @ ${g.config_path} (${g.ap_names.length} AP): ${g.error ? "ERROR " + g.error : JSON.stringify(g.result)}`);
+      appendLog(logId, `${label} @ ${g.config_path} (${g.ap_names.length} AP): ${g.error ? "ERROR " + g.error : JSON.stringify(g.result, null, 2)}`);
     });
+  }
+
+  document.getElementById("btnModelCompatCheck").addEventListener("click", () => {
+    if (!state.selected.size) return setStatus("modelCompatStatus", "No APs selected — check some in the Inventory tab.", "error");
+    const selectedAps = state.aps.filter((ap) => state.selected.has(ap.mac));
+    const unsupported = selectedAps.filter((ap) => ap.model_support === "unsupported");
+    const caveats = selectedAps.filter((ap) => ap.model_support === "caveat");
+    const unknown = selectedAps.filter((ap) => !ap.model_support || ap.model_support === "unknown");
+    const lines = [];
+    unsupported.forEach((ap) => lines.push(`UNSUPPORTED — ${ap.name || ap.mac} (${ap.model || "unknown model"}): ${ap.model_support_reason || ""}`));
+    caveats.forEach((ap) => lines.push(`CAVEAT — ${ap.name || ap.mac} (${ap.model || "unknown model"}): ${ap.model_support_reason || ""}`));
+    unknown.forEach((ap) => lines.push(`unknown — ${ap.name || ap.mac} (${ap.model || "unknown model"}): verify manually`));
+    const summary = lines.join("\n");
+    // Note: the compatibility list only knows "unsupported"/"caveat" entries -- there's
+    // no comprehensive "known good" list to match against, so "unknown" (verify
+    // manually) is the honest outcome for most APs, not a rare edge case.
+    if (unsupported.length) {
+      setStatus("modelCompatStatus", `${unsupported.length} selected AP(s) are known-unsupported:\n${summary}`, "error");
+    } else {
+      setStatus("modelCompatStatus", `No known-unsupported models in this selection (${caveats.length} caveat(s), ${unknown.length} unverified — see list, this check is deliberately incomplete):\n${summary}`, caveats.length ? "" : "ok");
+    }
+  });
+
+  /** ap_convert_prevalidate's exact REST response shape is UNVERIFIED (see README
+   * "Known gaps") -- rather than guess specific field names for "status"/"reason"
+   * (which could misrepresent the result if wrong), this finds whatever array of
+   * per-item results the response contains and renders one row per item with its
+   * full raw content, so pre-validate's per-AP detail is broken out visually
+   * without fabricating a field mapping we can't confirm. Falls back to a note
+   * pointing at the raw JSON log if no array is found anywhere in the response. */
+  function findResultRows(result) {
+    if (!result || typeof result !== "object") return null;
+    for (const key of ["Pre-Validate", "AP Status", "Results", "aps", "APs"]) {
+      if (Array.isArray(result[key])) return result[key];
+    }
+    for (const value of Object.values(result)) {
+      if (Array.isArray(value) && value.length && typeof value[0] === "object") return value;
+    }
+    return null;
+  }
+
+  function apLabelFor(item) {
+    for (const key of ["AP Name", "Name", "ap_name", "AP Wired MAC Address", "Wired MAC Address", "mac", "MAC Address"]) {
+      if (item && item[key]) return item[key];
+    }
+    return null;
+  }
+
+  function renderPrevalidateTable(data) {
+    const table = document.getElementById("prevalidateTable");
+    const tbody = document.getElementById("prevalidateTableBody");
+    const fallback = document.getElementById("prevalidateFallbackNote");
+    tbody.innerHTML = "";
+    let rowCount = 0;
+    (data.groups || []).forEach((g) => {
+      if (g.error) return;
+      const rows = findResultRows(g.result);
+      if (!rows) return;
+      rows.forEach((item, idx) => {
+        const tr = document.createElement("tr");
+        const label = apLabelFor(item) || `AP #${idx + 1} @ ${g.config_path}`;
+        const detail = typeof item === "object" ? JSON.stringify(item) : String(item);
+        tr.innerHTML = `<td>${label}</td><td>${detail}</td>`;
+        tbody.appendChild(tr);
+        rowCount++;
+      });
+    });
+    table.hidden = rowCount === 0;
+    fallback.hidden = rowCount > 0;
   }
 
   document.getElementById("btnConvertAdd").addEventListener("click", async () => {
@@ -472,6 +650,7 @@
       const groups = selectedGroups();
       const data = await api("POST", "/api/aos8/convert/prevalidate", { body: { session_id: state.aos8SessionId, groups } });
       logGroupResults("preflightLog", "Pre-validate", data);
+      renderPrevalidateTable(data);
     } catch (err) {
       appendLog("preflightLog", `ERROR: ${err.message}`);
     }
@@ -523,14 +702,124 @@
     }
   });
 
+  document.getElementById("btnCentralReachabilityCheck").addEventListener("click", async () => {
+    try {
+      const central_host = (document.getElementById("centralBaseUrl").value || "").trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+      const data = await api("POST", "/api/network/central-reachability", { body: { central_host: central_host || undefined } });
+      const lines = Object.entries(data).map(([label, result]) => `${result.reachable ? "OK" : "FAIL"} — ${label}: ${result.detail || result.error || ""}`);
+      const anyFailed = Object.values(data).some((r) => !r.reachable);
+      setStatus("centralReachabilityStatus", lines.join("\n"), anyFailed ? "error" : "ok");
+    } catch (err) {
+      setStatus("centralReachabilityStatus", `Check failed: ${err.message}`, "error");
+    }
+  });
+
+  const ackCountryCodeBox = document.getElementById("ackCountryCode");
+  const btnConvertExecuteEl = document.getElementById("btnConvertExecute");
+  function syncExecuteButtonState() {
+    btnConvertExecuteEl.disabled = !ackCountryCodeBox.checked;
+  }
+  ackCountryCodeBox.addEventListener("change", syncExecuteButtonState);
+  syncExecuteButtonState();
+
+  // ------------------------------------------------- live execute status
+  // show ap convert-status's exact response shape is UNVERIFIED (same caveat as
+  // pre-validate), so this uses its own generic per-item extraction -- named
+  // distinctly from the Pre-flight table's helpers rather than sharing them, since
+  // the two features are independent and this keeps them that way.
+
+  let executeStatusTimer = null;
+  let executeStatusStopAt = null;
+
+  function findStatusRows(result) {
+    if (!result || typeof result !== "object") return null;
+    for (const key of ["Convert Status", "AP Convert Status", "Status", "aps", "APs"]) {
+      if (Array.isArray(result[key])) return result[key];
+    }
+    for (const value of Object.values(result)) {
+      if (Array.isArray(value) && value.length && typeof value[0] === "object") return value;
+    }
+    return null;
+  }
+
+  function statusItemLabel(item) {
+    for (const key of ["AP Name", "Name", "ap_name", "AP Wired MAC Address", "Wired MAC Address", "mac", "MAC Address"]) {
+      if (item && item[key]) return item[key];
+    }
+    return null;
+  }
+
+  async function pollExecuteStatusOnce(configPaths) {
+    const tbody = document.getElementById("executeStatusTableBody");
+    const table = document.getElementById("executeStatusTable");
+    tbody.innerHTML = "";
+    let rowCount = 0;
+    for (const config_path of configPaths) {
+      try {
+        const data = await api("GET", "/api/aos8/convert/status", { params: { session_id: state.aos8SessionId, config_path } });
+        const rows = findStatusRows(data);
+        if (rows && rows.length) {
+          rows.forEach((item, idx) => {
+            const tr = document.createElement("tr");
+            const label = statusItemLabel(item) || `AP #${idx + 1}`;
+            tr.innerHTML = `<td>${config_path} &mdash; ${label}</td><td>${typeof item === "object" ? JSON.stringify(item) : String(item)}</td>`;
+            tbody.appendChild(tr);
+            rowCount++;
+          });
+        } else {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${config_path}</td><td>${JSON.stringify(data)}</td>`;
+          tbody.appendChild(tr);
+          rowCount++;
+        }
+      } catch (err) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${config_path}</td><td>ERROR: ${err.message}</td>`;
+        tbody.appendChild(tr);
+        rowCount++;
+      }
+    }
+    table.hidden = rowCount === 0;
+    if (executeStatusStopAt && Date.now() > executeStatusStopAt) stopExecutePolling();
+  }
+
+  function startExecutePolling() {
+    try {
+      requireAos8();
+    } catch (err) {
+      return alert(err.message);
+    }
+    const groups = selectedGroups();
+    if (!groups.length) return alert("No APs selected — check some in the Inventory tab.");
+    stopExecutePolling();
+    const configPaths = groups.map((g) => g.config_path);
+    executeStatusStopAt = Date.now() + 30 * 60 * 1000; // auto-stop after 30 minutes
+    pollExecuteStatusOnce(configPaths);
+    executeStatusTimer = setInterval(() => pollExecuteStatusOnce(configPaths), 5000);
+    document.getElementById("btnStartExecutePolling").disabled = true;
+    document.getElementById("btnStopExecutePolling").disabled = false;
+  }
+
+  function stopExecutePolling() {
+    if (executeStatusTimer) { clearInterval(executeStatusTimer); executeStatusTimer = null; }
+    executeStatusStopAt = null;
+    document.getElementById("btnStartExecutePolling").disabled = false;
+    document.getElementById("btnStopExecutePolling").disabled = true;
+  }
+
+  document.getElementById("btnStartExecutePolling").addEventListener("click", startExecutePolling);
+  document.getElementById("btnStopExecutePolling").addEventListener("click", stopExecutePolling);
+
   document.getElementById("btnConvertExecute").addEventListener("click", async () => {
-    if (!confirm(`Execute conversion for ${state.selected.size} AP(s)? This reboots them into AOS10.`)) return;
+    if (!ackCountryCodeBox.checked) return alert("Check the country-code acknowledgement in Step 3 before executing.");
+    if (!confirm(`Execute conversion for ${state.selected.size} AP(s)? This reboots them into AOS10 and permanently writes the controller's country code onto each one.`)) return;
     try {
       requireAos8();
       const groups = selectedGroups();
       const firmware = firmwareParams();
       const data = await api("POST", "/api/aos8/convert/execute", { body: { session_id: state.aos8SessionId, groups, firmware } });
       logGroupResults("convertLog", "Execute", data);
+      startExecutePolling();
     } catch (err) {
       appendLog("convertLog", `ERROR: ${err.message}`);
     }
@@ -544,6 +833,21 @@
       logGroupResults("convertLog", "Cancel", data);
     } catch (err) {
       appendLog("convertLog", `ERROR: ${err.message}`);
+    }
+  });
+
+  document.getElementById("btnConvertClearAll").addEventListener("click", async () => {
+    try {
+      requireAos8();
+      const groups = selectedGroups();
+      if (!groups.length) throw new Error("No APs selected — check some in the Inventory tab so their anchor controller(s) can be resolved.");
+      const config_paths = groups.map((g) => g.config_path);
+      if (!confirm(`Clear any pending ap convert job on ${config_paths.length} controller(s)? This is controller-wide, not limited to your current AP selection.`)) return;
+      const data = await api("POST", "/api/aos8/convert/clear-all", { body: { session_id: state.aos8SessionId, config_paths } });
+      const failed = (data.groups || []).filter((g) => g.error);
+      setStatus("clearAllStatus", failed.length ? `${failed.length} controller(s) failed to clear — see debug log.` : `Cleared pending job on ${config_paths.length} controller(s).`, failed.length ? "error" : "ok");
+    } catch (err) {
+      setStatus("clearAllStatus", `Clear failed: ${err.message}`, "error");
     }
   });
 
@@ -706,6 +1010,18 @@
     downloadCSV("migration-tracking.csv", toCSV(lastTrackingRows, AP_CSV_COLUMNS.concat(["last_updated"])));
   });
 
+  const AUDIT_LOG_CSV_COLUMNS = ["timestamp", "mac", "name", "state_before", "state_after", "notes"];
+
+  document.getElementById("btnExportAuditLogCsv").addEventListener("click", async () => {
+    try {
+      const rows = await api("GET", "/api/tracking/audit-log", {});
+      const formatted = rows.map((r) => ({ ...r, timestamp: formatDate(r.timestamp) }));
+      downloadCSV("migration-audit-log.csv", toCSV(formatted, AUDIT_LOG_CSV_COLUMNS));
+    } catch (err) {
+      alert(`Audit log export failed: ${err.message}`);
+    }
+  });
+
   // -------------------------------------------------------------- sites
 
   function renderUnassignedTable(rows) {
@@ -861,6 +1177,45 @@
 
   document.getElementById("trackingAutoRefresh").addEventListener("change", armTrackingAutoRefresh);
 
+  // ------------------------------------------------- in-progress banner
+  // Surfaces APs left in "converting"/"pre_validated" from a previous proxy-agent
+  // run (crash, restart, or a closed browser tab mid-migration) -- doesn't resume
+  // anything automatically, just makes sure it isn't silently forgotten. This is a
+  // pure DB read, no AOS8/Central session required, so it can run right at page load.
+
+  const INPROGRESS_DISMISS_KEY = "aos8-10-migrator-inprogress-dismissed-count";
+
+  async function checkInProgress() {
+    try {
+      const rows = await api("GET", "/api/tracking/in-progress", {});
+      const banner = document.getElementById("inProgressBanner");
+      if (!rows.length) { banner.hidden = true; return; }
+      // Only re-show if the count changed since last dismissal, so a user who
+      // dismissed it isn't nagged again every page load for the same APs.
+      let dismissedAt = null;
+      try { dismissedAt = Number(sessionStorage.getItem(INPROGRESS_DISMISS_KEY)); } catch (err) { /* ignore */ }
+      if (dismissedAt === rows.length) { banner.hidden = true; return; }
+      document.getElementById("inProgressBannerText").textContent =
+        `${rows.length} AP(s) have an in-progress migration from a previous session. `;
+      banner.hidden = false;
+    } catch (err) { /* best-effort -- proxy agent may not be reachable yet, that's fine */ }
+  }
+
+  document.getElementById("inProgressBannerLink").addEventListener("click", (e) => {
+    e.preventDefault();
+    document.querySelector('.step[data-tab="tracking"]').click();
+  });
+
+  document.getElementById("btnDismissInProgressBanner").addEventListener("click", () => {
+    const banner = document.getElementById("inProgressBanner");
+    banner.hidden = true;
+    try {
+      const text = document.getElementById("inProgressBannerText").textContent;
+      const count = Number((text.match(/\d+/) || [0])[0]);
+      sessionStorage.setItem(INPROGRESS_DISMISS_KEY, String(count));
+    } catch (err) { /* ignore */ }
+  });
+
   // -------------------------------------------------------------- init
 
   restoreSession();
@@ -868,4 +1223,6 @@
   wirePersistedFields();
   armTrackingAutoRefresh(); // in case a saved auto-refresh interval was just restored
   pollDebugLog();
+  syncTopologyWarning();
+  checkInProgress();
 })();
