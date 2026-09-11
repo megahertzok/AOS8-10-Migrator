@@ -523,6 +523,18 @@
     }
   });
 
+  document.getElementById("btnCentralReachabilityCheck").addEventListener("click", async () => {
+    try {
+      const central_host = (document.getElementById("centralBaseUrl").value || "").trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+      const data = await api("POST", "/api/network/central-reachability", { body: { central_host: central_host || undefined } });
+      const lines = Object.entries(data).map(([label, result]) => `${result.reachable ? "OK" : "FAIL"} — ${label}: ${result.detail || result.error || ""}`);
+      const anyFailed = Object.values(data).some((r) => !r.reachable);
+      setStatus("centralReachabilityStatus", lines.join("\n"), anyFailed ? "error" : "ok");
+    } catch (err) {
+      setStatus("centralReachabilityStatus", `Check failed: ${err.message}`, "error");
+    }
+  });
+
   document.getElementById("btnConvertExecute").addEventListener("click", async () => {
     if (!confirm(`Execute conversion for ${state.selected.size} AP(s)? This reboots them into AOS10.`)) return;
     try {

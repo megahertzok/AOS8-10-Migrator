@@ -196,6 +196,14 @@ Before executing a conversion, the Convert & Rollback tab surfaces:
   mesh settings stay on the AP but are **not** migrated into Central, and a mismatch
   can make the AP flap and auto-restore. If your APs use any of these, configure the
   equivalent settings in the target Central AP group *before* converting.
+- **AP → Central network reachability (approximate)** — a converted AP that never
+  appears in Central is very often not a conversion problem at all, but its VLAN
+  having no path to Aruba's cloud onboarding services. "Check reachability" probes
+  `device.arubanetworks.com` (Activate) and your configured Central Gateway host —
+  but from the *proxy agent's* network, not the AP's own VLAN, so treat it as a useful
+  signal, not a guarantee, if those differ. DNS and NTP on the AP's VLAN can't be
+  tested from here at all — confirm those manually; a badly-skewed clock can break
+  the TLS handshake to Central on its own.
 
 ## Post-migration verification
 

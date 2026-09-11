@@ -393,6 +393,18 @@ def aos8_firmware_check():
     return jsonify(result)
 
 
+@app.post("/api/network/central-reachability")
+def network_central_reachability():
+    """Best-effort pre-flight signal for a very common real-world failure mode: the AP
+    converts fine but never shows up in Central because its VLAN can't reach Aruba's
+    cloud onboarding services at all. Runs from the proxy agent's own network -- see
+    firmware_check.check_central_reachability()'s docstring for why that's a signal,
+    not a guarantee, if the AP's VLAN differs from the proxy agent's."""
+    body = request.get_json(force=True) or {}
+    results = firmware_check.check_central_reachability(central_host=body.get("central_host"))
+    return jsonify(results)
+
+
 @app.post("/api/aos8/rollback")
 def aos8_rollback_to_campus():
     """Revert a fully-converted AP back to Campus/AOS8 mode.
